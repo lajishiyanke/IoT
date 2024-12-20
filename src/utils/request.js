@@ -13,13 +13,46 @@ const request = axios.create({
   }
 })
 
+// 添加刷新token的函数
+const refreshToken = async () => {
+  try {
+    const response = await axios.post('/api/auth/refresh', {
+      token: localStorage.getItem('token')
+    })
+    const newToken = response.data.token
+    localStorage.setItem('token', newToken)
+    return newToken
+  } catch (error) {
+    localStorage.removeItem('token')
+    router.replace('/login')
+    return null
+  }
+}
+
 // 请求拦截器
 request.interceptors.request.use(
   config => {
     const token = localStorage.getItem('token')
+    
+    // 打印详细的请求信息用于调试
+    console.log('Request Config:', {
+      url: config.url,
+      method: config.method,
+      headers: config.headers,
+      params: config.params,
+      data: config.data,
+      token: token // 打印token用于调试
+    })
+    
     if (token) {
-      // 确保 token 格式正确
+      // 确保token格式正确
       config.headers['Authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`
+    } else {
+      // 如果是需要认证的接口，没有token直接拒绝
+      if (!config.url.includes('/auth/')) {
+        router.replace('/login')
+        return Promise.reject(new Error('No token'))
+      }
     }
     
     // 添加时间戳防止缓存
@@ -29,14 +62,6 @@ request.interceptors.request.use(
         _t: Date.now()
       }
     }
-    
-    console.log('Request:', {
-      url: config.url,
-      method: config.method,
-      headers: config.headers,
-      params: config.params,
-      data: config.data
-    })
     
     return config
   },
@@ -55,8 +80,12 @@ request.interceptors.response.use(
     console.error('Response Error:', error.response || error)
     
     if (error.response) {
-      switch (error.response.status) {
+      const status = error.response.status
+      const message = error.response.data?.message || '请求失败'
+      
+      switch (status) {
         case 401:
+          // 未认证，清除token并跳转登录
           localStorage.removeItem('token')
           router.replace('/login')
           ElMessage.error('登录已过期，请重新登录')
@@ -64,9 +93,12 @@ request.interceptors.response.use(
           
         case 403:
           console.error('权限错误:', error.response)
-          ElMessage.error('没有权限访问此资源')
-          localStorage.removeItem('token')
-          router.replace('/login')
+          ElMessage.error(message)
+          // 如果是token问题，清除token并跳转
+          if (message.includes('token') || message.includes('Token')) {
+            localStorage.removeItem('token')
+            router.replace('/login')
+          }
           break
           
         case 500:
@@ -74,7 +106,7 @@ request.interceptors.response.use(
           break
           
         default:
-          ElMessage.error(error.response.data?.message || '请求失败')
+          ElMessage.error(message)
       }
     } else if (error.request) {
       ElMessage.error('网络连接失败，请检查网络')
@@ -85,5 +117,14 @@ request.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// 修改请求URL格式为符合API文档的格式
+const getSensorData = (deviceId, params) => {
+  return request({
+    url: `/api/sensor-data/device/${deviceId}`,
+    method: 'get',
+    params
+  })
+}
 
 export default request 
