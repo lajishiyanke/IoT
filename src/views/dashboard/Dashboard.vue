@@ -104,7 +104,7 @@
       </el-col>
     </el-row>
 
-    <!-- 实时信号趋��图 -->
+    <!-- 实时信号趋势图 -->
     <el-row :gutter="20" class="charts-container">
       <el-col :xs="24">
         <el-card class="chart-card">
@@ -150,7 +150,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { addDevice, getUserDevices, getUserOnlineDevices } from '@/api/device'
-import { getDeviceSensorData } from '@/api/sensor'
+import { getUserSensorData } from '@/api/sensor'
 import { router } from '@/router'
 
 // 注册 ECharts 组件
@@ -216,7 +216,7 @@ const signalChartOption = ref({
 // 然后定义函数
 const fetchSensorData = async () => {
   try {
-    // 检查登录状态
+    // 1. 检查登录状态
     const token = localStorage.getItem('token')
     if (!token) {
       ElMessage.error('请先登录')
@@ -224,30 +224,32 @@ const fetchSensorData = async () => {
       return
     }
 
-    // 计算时间范围
+    // 2. 准备请求参数
     const end = new Date()
     const start = new Date(end.getTime() - 3600000) // 1小时前
-
-    console.log('发送请求:', {
-      deviceId: 1,
+    
+    const params = {
       channelId: selectedChannel.value,
-      startTime: start.toISOString(),
-      endTime: end.toISOString()
-    })
-
-    const response = await getDeviceSensorData(
-      1,
-      selectedChannel.value,
-      start,
-      end
-    )
+      //startTime: start.toISOString(), // 需要转换为ISO格式
+      //endTime: end.toISOString()
+    }
+    
+    console.log('发送请求参数:', params)
+    
+    // 3. 发送请求
+    const response = await getUserSensorData(params)
     
     console.log('接收到的数据:', response)
     
+    // 4. 处理响应数据
     if (response && Array.isArray(response)) {
-      const chartData = response.map(item => [
-        new Date(item.timestamp).getTime(),
-        parseFloat(item.value)
+      const sortedData = response
+        .filter(item => item.channelId === selectedChannel.value)
+        .sort((a, b) => new Date(a.collectTime) - new Date(b.collectTime))
+      
+      const chartData = sortedData.map(item => [
+        new Date(item.collectTime).getTime(),
+        parseFloat(item.dataValue)
       ])
       
       signalChartOption.value = {
@@ -260,15 +262,22 @@ const fetchSensorData = async () => {
           showSymbol: false
         }]
       }
+    } else {
+      console.warn('响应数据格式不正确:', response)
     }
   } catch (error) {
-    console.error('获取传感器数据失败:', error)
-    if (error.response?.status === 403) {
-      ElMessage.error('没有权限访问此资源，请重新登录')
-      localStorage.removeItem('token') // 清除可能过期的 token
-      router.push('/login')
+    console.error('完整错误信息:', error)
+    if (error.response) {
+      console.error('错误响应:', error.response)
+      if (error.response.status === 403) {
+        ElMessage.error('没有权限访问此资源，请重新登录')
+        localStorage.removeItem('token')
+        router.push('/login')
+      } else {
+        ElMessage.error(`获取数据失败: ${error.response.data?.message || '未知错误'}`)
+      }
     } else {
-      ElMessage.error('获取传感器数据失败')
+      ElMessage.error('网络请求失败，请检查网络连接')
     }
   }
 }
@@ -303,7 +312,7 @@ const alertList = ref([
     channel: '通道1',
     description: '信号幅超出阈值',
     status: 'pending',
-    statusText: '待处理'
+    statusText: '信号处理'
   },
   {
     time: '2024-03-20 09:15:00',
