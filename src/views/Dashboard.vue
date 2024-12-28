@@ -67,7 +67,7 @@ export default {
         chartInstance.value = echarts.init(chartRef.value)
         const option = {
           title: {
-            text: '实时信号趋势（通道1）'
+            text: '实时信号趋势'
           },
           tooltip: {
             trigger: 'axis',

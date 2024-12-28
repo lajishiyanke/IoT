@@ -112,8 +112,8 @@
             <div class="chart-header">
               <span>实时信号趋势</span>
               <el-radio-group v-model="selectedChannel" size="small" @change="fetchSensorData">
-                <el-radio-button label="channel1">通道1</el-radio-button>
-                <el-radio-button label="channel2">通道2</el-radio-button>
+                <el-radio-button label="1">通道1</el-radio-button>
+                <el-radio-button label="2">通道2</el-radio-button>
               </el-radio-group>
             </div>
           </template>
@@ -165,7 +165,7 @@ use([
 ])
 
 // 首先定义所有的响应式变量
-const selectedChannel = ref('channel1') // 移到最前面
+const selectedChannel = ref('1')
 const startTime = ref(new Date(Date.now() - 3600000)) // 1小时之前
 const endTime = ref(new Date())
 
@@ -229,9 +229,7 @@ const fetchSensorData = async () => {
     const start = new Date(end.getTime() - 3600000) // 1小时前
     
     const params = {
-      channelId: selectedChannel.value,
-      //startTime: start.toISOString(), // 需要转换为ISO格式
-      //endTime: end.toISOString()
+      channelId: selectedChannel.value
     }
     
     console.log('发送请求参数:', params)
