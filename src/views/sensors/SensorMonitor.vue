@@ -12,7 +12,7 @@
                   <el-button
                     type="primary"
                     :icon="CaretRight"
-                    :disabled="isStreaming"
+                    :disabled="isStreaming || !selectedDevice"
                     @click="startStream"
                   >
                     开始采集
@@ -58,12 +58,19 @@
           <el-row :gutter="20">
             <el-col :md="8" :sm="12" :xs="24">
               <div class="control-item">
-                <span class="label">采样频率</span>
-                <el-select v-model="sampleRate" :disabled="isStreaming">
-                  <el-option label="100Hz" value="100" />
-                  <el-option label="200Hz" value="200" />
-                  <el-option label="500Hz" value="500" />
-                  <el-option label="1000Hz" value="1000" />
+                <span class="label">传感器</span>
+                <el-select 
+                  v-model="selectedDevice" 
+                  placeholder="请选择传感器"
+                  class="device-select"
+                  @change="handleDeviceChange"
+                >
+                  <el-option
+                    v-for="device in deviceList"
+                    :key="device.id"
+                    :label="device.deviceName"
+                    :value="device.id"
+                  />
                 </el-select>
               </div>
             </el-col>
@@ -90,11 +97,12 @@
             <el-col :md="8" :sm="12" :xs="24">
               <div class="control-item">
                 <span class="label">显示时长</span>
-                <el-select v-model="timeWindow">
+                <el-select v-model="timeWindow" @change="handleTimeWindowChange">
                   <el-option label="30秒" value="30" />
                   <el-option label="1分钟" value="60" />
                   <el-option label="5分钟" value="300" />
                   <el-option label="10分钟" value="600" />
+                  <el-option label="1小时" value="3600" />
                 </el-select>
               </div>
             </el-col>
@@ -270,6 +278,7 @@ import { WebSocketClient } from '@/utils/websocket'
 import { exportExcel } from '@/utils/export'
 import { getAlarmRules, setAlarmRule, getUnhandledAlarms } from '@/api/alarm'
 import AlarmHandleDialog from '@/components/alarm/AlarmHandleDialog.vue'
+import { getUserDevices } from '@/api/device'
 
 // 注册 ECharts 组件
 use([
@@ -285,16 +294,15 @@ use([
 // 状态变量
 const isStreaming = ref(false)
 const showSettings = ref(false)
-const sampleRate = ref('100')
-const timeWindow = ref('60')
-const selectedChannels = ref(['ch1', 'ch2'])
+const timeWindow = ref('3600')  // 默认1小时，用秒表示
+const selectedChannels = ref(['1'])
 
 // 通道配置
 const channels = [
-  { label: '通道1', value: 'ch1' },
-  { label: '通道2', value: 'ch2' },
-  { label: '通道3', value: 'ch3' },
-  { label: '通道4', value: 'ch4' }
+  { label: '通道1', value: '1' },
+  { label: '通道2', value: '2' },
+  { label: '通道3', value: '3' },
+  { label: '通道4', value: '4' }
 ]
 
 // 参数设置
@@ -313,9 +321,9 @@ const chartOption = reactive({
       type: 'cross'
     }
   },
-  legend: {
+  /* legend: {
     data: selectedChannels.value.map(ch => `通道${ch}`)
-  },
+  },*/
   grid: {
     left: '3%',
     right: '4%',
@@ -368,6 +376,35 @@ const unhandledAlarms = ref([])
 // 告警处理
 const showAlarmHandle = ref(false)
 const currentAlarm = ref(null)
+
+// 添加设备相关的响应式变量
+const deviceList = ref([])
+const selectedDevice = ref('')
+
+// 获取设备列表
+const fetchDevices = async () => {
+  try {
+    const response = await getUserDevices()
+    if (Array.isArray(response)) {
+      deviceList.value = response
+      console.log('获取到的设备列表:', response)
+    }
+  } catch (error) {
+    console.error('获取设备列表失败:', error)
+    ElMessage.error('获取设备列表失败')
+  }
+}
+
+// 处理设备选择变化
+const handleDeviceChange = () => {
+  if (isStreaming.value) {
+    stopStream()
+  }
+  // 重置图表数据
+  chartOption.series.forEach(series => {
+    series.data = []
+  })
+}
 
 // 初始化数据
 const initData = async () => {
@@ -426,18 +463,79 @@ const initWebSocket = () => {
 }
 
 // 开始采集数据
-const startStream = () => {
-  if (selectedChannels.value.length === 0) {
-    ElMessage.warning('请至少选择一个通道')
+const startStream = async () => {
+  if (!selectedDevice.value || !selectedChannels.value) {
+    console.error('设备或通道未选择:', {
+      device: selectedDevice.value,
+      channels: selectedChannels.value
+    })
     return
   }
-  
-  isStreaming.value = true
-  wsClient.value?.send({
-    type: 'startStream',
-    channels: selectedChannels.value,
-    sampleRate: parseInt(sampleRate.value)
-  })
+
+  try {
+    const endTime = new Date()
+    const startTime = new Date(endTime.getTime() - 1 * 60 * 60 * 1000) // 1小时前
+
+    // 将 Proxy(Array) 转换为字符串
+    const channelIdString = Array.from(selectedChannels.value).join(',')
+
+    // 打印完整的请求参数
+    console.log('请求参数:', {
+      deviceId: selectedDevice.value,
+      channelId: channelIdString,  // 使用转换后的字符串
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString()
+    })
+
+    // 发送请求获取传感器数据
+    const response = await getDeviceSensorData(selectedDevice.value, {
+      channelId: channelIdString,  // 使用转换后的字符串
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString()
+    })
+
+    if (!response || !response.data) {
+      console.warn('响应数据为空，请检查：', response)
+      return
+    }
+
+    console.log('获取到的通道数据:', channelIdString)  // 打印转换后的字符串
+    console.log('获取到的传感器数据:', response)
+
+    if (Array.isArray(response)) {
+      // 清空现有数据
+      chartOption.series.forEach(series => {
+        series.data = []
+      })
+
+      // 处理数据并更新图表
+      response.forEach(item => {
+        const channelIndex = selectedChannels.value.indexOf(item.channelId)
+        if (channelIndex !== -1) {
+          const timestamp = new Date(item.collectTime).getTime()
+          const value = Number(item.dataValue)
+
+          // 添加数据点到对应的通道
+          chartOption.series[channelIndex].data.push([timestamp, value])
+        }
+      })
+
+      // 对每个通道的数据进行时间排序
+      chartOption.series.forEach(series => {
+        series.data.sort((a, b) => a[0] - b[0])
+      })
+
+      // 更新图表
+      isStreaming.value = true
+      ElMessage.success('开始采集数据')
+
+      // 更新统计信息
+      updateStats()
+    }
+  } catch (error) {
+    console.error('获取传感器数据失败:', error)
+    ElMessage.error('获取传感器数据失败')
+  }
 }
 
 // 暂停采集
@@ -472,28 +570,43 @@ const stopStream = async () => {
 }
 
 // 导出数据
-const downloadData = async () => {
+const downloadData = () => {
   try {
-    // 获取导出数据
-    const data = await getDeviceSensorData(deviceId.value, {
-      channelId: selectedChannels.value.join(','),
-      startTime: startTime.value,
-      endTime: endTime.value
+    // 更新统计信息
+    updateStats()
+    
+    // 获取当前图表上的数据
+    const exportData = []
+    
+    // 遍历每个通道的数据
+    chartOption.series.forEach((series, index) => {
+      const channelId = selectedChannels.value[index]
+      series.data.forEach(point => {
+        exportData.push({
+          '时间': new Date(point[0]).toLocaleString(),
+          '通道': `通道${channelId}`,
+          '幅值': point[1].toFixed(2)
+        })
+      })
     })
+
+    // 按时间排序
+    exportData.sort((a, b) => new Date(a.时间) - new Date(b.时间))
     
-    // 转换数据格式
-    const exportData = data.map(item => ({
-      通道: item.channelId,
-      数值: item.dataValue,
-      单位: item.dataUnit,
-      采集时间: new Date(item.collectTime).toLocaleString()
-    }))
-    
+    if (exportData.length === 0) {
+      ElMessage.warning('没有可导出的数据')
+      return
+    }
+
     // 导出Excel
-    exportExcel(exportData, `传感器数据_${new Date().toLocaleDateString()}.xlsx`)
+    exportExcel(
+      exportData,
+      `传感器数据_${new Date().toLocaleString()}.xlsx`
+    )
     ElMessage.success('数据导出成功')
   } catch (error) {
-    ElMessage.error('数据导出失败')
+    console.error('导出数据失败:', error)
+    ElMessage.error('导出数据失败')
   }
 }
 
@@ -596,23 +709,41 @@ const stopDataSimulation = () => {
   }
 }
 
-const updateChannelStats = (channelId, value) => {
-  if (!channelStats[channelId]) {
-    channelStats[channelId] = {
-      max: value,
-      min: value,
-      avg: value,
-      count: 1,
-      sum: value
+// 修改统计信息的计算方法
+const calculateChannelStats = (channelIndex) => {
+  const channelId = selectedChannels.value[channelIndex]
+  const seriesData = chartOption.series[channelIndex]?.data || []
+  
+  if (seriesData.length === 0) {
+    return {
+      max: 0,
+      min: 0,
+      avg: 0
     }
-  } else {
-    const stats = channelStats[channelId]
-    stats.max = Math.max(stats.max, value)
-    stats.min = Math.min(stats.min, value)
-    stats.count++
-    stats.sum += value
-    stats.avg = stats.sum / stats.count
   }
+
+  // 使用图表数据计算统计值
+  const values = seriesData.map(point => point[1])
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const sum = values.reduce((acc, val) => acc + val, 0)
+  const avg = sum / values.length
+
+  // 更新统计信息
+  channelStats[channelId] = {
+    max,
+    min,
+    avg
+  }
+
+  return channelStats[channelId]
+}
+
+// 在数据更新时重新计算统计信息
+const updateStats = () => {
+  selectedChannels.value.forEach((_, index) => {
+    calculateChannelStats(index)
+  })
 }
 
 const fetchSensorData = async () => {
@@ -637,7 +768,54 @@ const handleAlarmSuccess = () => {
   fetchUnhandledAlarms()
 }
 
+// 添加时间窗口变化处理函数
+const handleTimeWindowChange = async () => {
+  if (!selectedDevice.value) return
+  
+  try {
+    // 获取当前时间和选定时间窗口前的时间
+    const endTime = new Date()
+    const startTime = new Date(endTime.getTime() - timeWindow.value * 1000)
+
+    // 获取新时间窗口的数据
+    const response = await getDeviceSensorData(selectedDevice.value, {
+      channelId: selectedChannels.value,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString()
+    })
+
+    if (Array.isArray(response)) {
+      // 清空现有数据
+      chartOption.series.forEach(series => {
+        series.data = []
+      })
+
+      // 处理新数据
+      response.forEach(item => {
+        const channelIndex = selectedChannels.value.indexOf(item.channelId)
+        if (channelIndex !== -1) {
+          const timestamp = new Date(item.collectTime).getTime()
+          const value = Number(item.dataValue)
+          chartOption.series[channelIndex].data.push([timestamp, value])
+        }
+      })
+
+      // 对数据进行时间排序
+      chartOption.series.forEach(series => {
+        series.data.sort((a, b) => a[0] - b[0])
+      })
+
+      // 更新统计信息
+      updateStats()
+    }
+  } catch (error) {
+    console.error('获取数据失败:', error)
+    ElMessage.error('获取数据失败')
+  }
+}
+
 onMounted(() => {
+  fetchDevices()
   initData()
   initWebSocket()
   fetchAlarmRules()
@@ -661,6 +839,16 @@ onBeforeUnmount(() => {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      
+      .control-options {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+
+        .device-select {
+          width: 200px;
+        }
+      }
       
       .control-buttons {
         display: flex;

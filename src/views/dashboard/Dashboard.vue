@@ -6,7 +6,7 @@
       class="add-device-btn"
       @click="showAddDeviceDialog = true"
     >
-      <el-icon><Plus /></el-icon>
+    <el-icon><Plus /></el-icon>
       添加设备
     </el-button>
 
@@ -46,10 +46,6 @@
             :active-text="'在线'"
             :inactive-text="'离线'"
           />
-        </el-form-item>
-        
-        <el-form-item label="固件版本" prop="firmwareVersion">
-          <el-input v-model="deviceForm.firmwareVersion" placeholder="请输入固件版本"/>
         </el-form-item>
         
         <el-form-item label="设备分组" prop="groupId">
@@ -104,25 +100,179 @@
       </el-col>
     </el-row>
 
-    <!-- 实时信号趋势图 -->
-    <el-row :gutter="20" class="charts-container">
-      <el-col :xs="24">
-        <el-card class="chart-card">
-          <template #header>
-            <div class="chart-header">
-              <span>实时信号趋势</span>
-              <el-radio-group v-model="selectedChannel" size="small" @change="fetchSensorData">
-                <el-radio-button label="1">通道1</el-radio-button>
-                <el-radio-button label="2">通道2</el-radio-button>
-              </el-radio-group>
-            </div>
+    <!-- 设备列表 -->
+    <el-card class="device-list-card">
+      <template #header>
+        <div class="card-header">
+          <span>设备列表</span>
+        </div>
+      </template>
+      
+      <el-table 
+        :data="deviceTableData" 
+        style="width: 100%"
+        v-loading="loading"
+      >
+        <el-table-column prop="deviceName" label="设备名称" />
+        <el-table-column prop="deviceCode" label="设备编码" />
+        <el-table-column prop="deviceType" label="设备类型">
+          <template #default="{ row }">
+            <el-tag>{{ getDeviceTypeName(row.deviceType) }}</el-tag>
           </template>
-          <div class="chart-content">
-            <v-chart class="chart" :option="signalChartOption" autoresize />
+        </el-table-column>
+        <el-table-column prop="deviceStatus" label="设备状态">
+          <template #default="{ row }">
+            <el-tag :type="row.status ? 'success' : 'danger'">
+              {{ row.status ? '在线' : '离线' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createTime" label="创建时间" />
+        <el-table-column label="操作" width="200">
+          <template #default="{ row }">
+            <el-button 
+              type="primary" 
+              link
+              @click="goToDeviceDetail(row)"
+            >
+              查看
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      
+      <!-- 分页 -->
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
+    </el-card>
+
+    <!-- 设备分组列表 -->
+    <el-card class="group-list-card">
+      <template #header>
+        <div class="card-header">
+          <span>设备分组</span>
+        </div>
+      </template>
+      
+      <el-table
+        :data="groupTableData"
+        style="width: 100%"
+        v-loading="groupLoading"
+        row-key="id"
+        :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
+      >
+        <el-table-column prop="name" label="分组名称" />
+        <el-table-column prop="description" label="描述" show-overflow-tooltip />
+        <el-table-column prop="deviceCount" label="设备数量" width="100" />
+        <el-table-column prop="level" label="层级" width="80" />
+        <el-table-column prop="createTime" label="创建时间">
+          <template #default="{ row }">
+            {{ new Date(row.createTime).toLocaleString() }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="200">
+          <template #default="{ row }">
+            <el-button 
+              type="primary" 
+              link
+              @click="viewGroupDevices(row)"
+            >
+              查看设备
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <!-- 告警记录列表 -->
+    <el-card class="alarm-list-card">
+      <template #header>
+        <div class="card-header">
+          <span>告警记录</span>
+          <div class="header-operations">
+            <el-date-picker
+              v-model="alarmDateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              @change="handleDateRangeChange"
+            />
           </div>
-        </el-card>
-      </el-col>
-    </el-row>
+        </div>
+      </template>
+      
+      <el-table 
+        :data="alarmTableData" 
+        style="width: 100%"
+        v-loading="alarmLoading"
+      >
+        <el-table-column prop="deviceName" label="设备名称">
+          <template #default="{ row }">
+            {{ row.deviceName || `未知设备(${row.deviceId})` }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="channelId" label="通道" />
+        <el-table-column prop="isHandled" label="处理状态">
+          <template #default="{ row }">
+            <el-tag :type="row.isHandled ? 'success' : 'warning'">
+              {{ row.isHandled ? '已处理' : '未处理' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createTime" label="创建时间">
+          <template #default="{ row }">
+            {{ new Date(row.createTime).toLocaleString() }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="handleTime" label="处理时间">
+          <template #default="{ row }">
+            {{ row.handleTime ? new Date(row.handleTime).toLocaleString() : '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="handleNote" label="处理备注" show-overflow-tooltip />
+      </el-table>
+      
+      <!-- 告警记录分页 -->
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="alarmCurrentPage"
+          v-model:page-size="alarmPageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="alarmTotal"
+          @size-change="handleAlarmSizeChange"
+          @current-change="handleAlarmCurrentChange"
+        />
+      </div>
+    </el-card>
+
+    <!-- 设备详情对话框 -->
+    <el-dialog
+      v-model="showDeviceDialog"
+      title="设备详情"
+      width="30%"
+    >
+      <div v-if="currentDevice">
+        <p><strong>设备名称：</strong>{{ currentDevice.deviceName }}</p>
+        <p><strong>设备编码：</strong>{{ currentDevice.deviceCode }}</p>
+        <p><strong>设备类型：</strong>{{ getDeviceTypeName(currentDevice.deviceType) }}</p>
+        <p><strong>设备描述：</strong>{{ currentDevice.description || '暂无描述' }}</p>
+        <p><strong>设备状态：</strong>{{ currentDevice.status ? '在线' : '离线' }}</p>
+        <p><strong>MQTT主题：</strong>{{ currentDevice.mqttTopic }}</p>
+        <p><strong>设备分组：</strong>{{ currentDevice.groupId }}</p>
+      </div>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -149,7 +299,13 @@ import {
   Plus
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { addDevice, getUserDevices, getUserOnlineDevices } from '@/api/device'
+import { 
+  addDevice, 
+  getUserDevices, 
+  getUserOnlineDevices,
+  getGroupTree 
+} from '@/api/device'
+import { getUnhandledAlarms, getDeviceAlarms } from '@/api/alarm'
 import { getUserSensorData } from '@/api/sensor'
 import { router } from '@/router'
 
@@ -178,14 +334,14 @@ const overviewCards = reactive([
     type: 'primary'
   },
   {
-    title: '信号质量',
-    value: '98%',
+    title: '告警设备数量',
+    value: '0',
     icon: 'Connection',
     type: 'success'
   },
   {
-    title: '数据量',
-    value: '1.2TB',
+    title: '近7日报警数量',
+    value: '0',
     icon: 'DataAnalysis',
     type: 'info'
   }
@@ -213,81 +369,8 @@ const signalChartOption = ref({
   ]
 })
 
-// 然后定义函数
-const fetchSensorData = async () => {
-  try {
-    // 1. 检查登录状态
-    const token = localStorage.getItem('token')
-    if (!token) {
-      ElMessage.error('请先登录')
-      router.push('/login')
-      return
-    }
-
-    // 2. 准备请求参数
-    const end = new Date()
-    const start = new Date(end.getTime() - 3600000) // 1小时前
-    
-    const params = {
-      channelId: selectedChannel.value
-    }
-    
-    console.log('发送请求参数:', params)
-    
-    // 3. 发送请求
-    const response = await getUserSensorData(params)
-    
-    console.log('接收到的数据:', response)
-    
-    // 4. 处理响应数据
-    if (response && Array.isArray(response)) {
-      const sortedData = response
-        .filter(item => item.channelId === selectedChannel.value)
-        .sort((a, b) => new Date(a.collectTime) - new Date(b.collectTime))
-      
-      const chartData = sortedData.map(item => [
-        new Date(item.collectTime).getTime(),
-        parseFloat(item.dataValue)
-      ])
-      
-      signalChartOption.value = {
-        ...signalChartOption.value,
-        series: [{
-          name: '信号幅值',
-          type: 'line',
-          data: chartData,
-          smooth: true,
-          showSymbol: false
-        }]
-      }
-    } else {
-      console.warn('响应数据格式不正确:', response)
-    }
-  } catch (error) {
-    console.error('完整错误信息:', error)
-    if (error.response) {
-      console.error('错误响应:', error.response)
-      if (error.response.status === 403) {
-        ElMessage.error('没有权限访问此资源，请重新登录')
-        localStorage.removeItem('token')
-        router.push('/login')
-      } else {
-        ElMessage.error(`获取数据失败: ${error.response.data?.message || '未知错误'}`)
-      }
-    } else {
-      ElMessage.error('网络请求失败，请检查网络连接')
-    }
-  }
-}
-
 // 定时刷新数据
 let refreshTimer = null
-
-// 生命周期钩子
-onMounted(() => {
-  fetchSensorData() // 初始加载
-  refreshTimer = setInterval(fetchSensorData, 10000) // 改为10秒
-})
 
 onBeforeUnmount(() => {
   if (refreshTimer) {
@@ -296,46 +379,12 @@ onBeforeUnmount(() => {
   }
 })
 
-// 监听通道变化
-watch(selectedChannel, () => {
-  fetchSensorData()
-})
 
-// 告警列表数据
-const alertList = ref([
-  {
-    time: '2024-03-20 10:30:00',
-    type: 'error',
-    typeText: '严重',
-    channel: '通道1',
-    description: '信号幅超出阈值',
-    status: 'pending',
-    statusText: '信号处理'
-  },
-  {
-    time: '2024-03-20 09:15:00',
-    type: 'warning',
-    typeText: '警告',
-    channel: '通道2',
-    description: '信号质量下降',
-    status: 'resolved',
-    statusText: '已解决'
-  }
-])
 
 // 模拟实时数据更新
 let timer = null
 let statsTimer = null
-const updateSignalData = () => {
-  const now = new Date()
-  const value = Math.random() * 100
-  signalChartOption.series[0].data.push([now, value])
-  
-  // 保持最近 100 个数据点
-  if (signalChartOption.series[0].data.length > 100) {
-    signalChartOption.series[0].data.shift()
-  }
-}
+
 
 // 设备和告警统计数据
 const deviceStats = reactive({
@@ -405,27 +454,58 @@ const fetchDeviceStats = async () => {
 // 获取告警统计信息
 const fetchAlarmStats = async () => {
   try {
-    // 获取所有设备的未处理告警
-    const devices = await getUserDevices()
-    let unhandledCount = 0
+    // 直接调用获取未处理告警的接口
+    const response = await getUnhandledAlarms()
     
-    for (const device of devices) {
-      const alarms = await getUnhandledAlarms(device.id)
-      unhandledCount += alarms.length
-    }
+    // 如果响应是数组，获取其长度作为未处理告警数量
+    const unhandledCount = Array.isArray(response) ? response.length : 0
     
+    // 更新告警统计数据
     alarmStats.unhandled = unhandledCount
     
-    // 更新概览卡片数据
-    overviewCards[1].value = alarmStats.unhandled.toString()
+    // 更新概览卡片中的告警设备数量
+    overviewCards[1].value = unhandledCount.toString()
+    
+    console.log('未处理告警数量:', unhandledCount)
   } catch (error) {
     console.error('获取告警统计失败:', error)
+    ElMessage.error('获取告警统计失败')
   }
 }
 
-// 修改刷新函数
+// 获取近7日告警统计
+const fetchLastWeekAlarms = async () => {
+  try {
+    // 计算时间范围
+    const endTime = new Date()
+    const startTime = new Date(endTime.getTime() - 7 * 24 * 60 * 60 * 1000) // 7天前
+
+    // 格式化时间为ISO字符串
+    const params = {
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString()
+    }
+
+    const response = await getDeviceAlarms(params)
+    
+    // 如果响应是数组，获取其长度作为告警数量
+    const alarmCount = Array.isArray(response) ? response.length : 0
+    
+    // 更新概览卡片中的近7日告警数量
+    overviewCards[2].value = alarmCount.toString()
+    
+    console.log('近7日告警数量:', alarmCount)
+  } catch (error) {
+    console.error('获取近7日告警统计失败:', error)
+    ElMessage.error('获取告警统计失败')
+  }
+}
+
+// 修改刷新函数，添加对近7日告警的获取
 const refreshStats = async () => {
   await fetchDeviceStats()
+  await fetchAlarmStats()
+  await fetchLastWeekAlarms()
 }
 
 // 在 script setup 顶部添加 WebSocket 客户端引用
@@ -434,6 +514,9 @@ const wsClient = ref(null)
 // 修改生命周期钩子
 onMounted(() => {
   fetchDeviceStats() // 初始加载
+  fetchDeviceList() // 添加这行
+  fetchAlarmList() // 添加这行
+  fetchGroupList() // 添加这行
   statsTimer = setInterval(fetchDeviceStats, 60000) // 改为1分钟
 })
 
@@ -467,7 +550,6 @@ const deviceForm = reactive({
   deviceCode: '',
   deviceType: '',
   deviceStatus: false,
-  firmwareVersion: '',
   groupId: null,
   mqttTopic: '',
   description: ''
@@ -487,9 +569,6 @@ const deviceRules = {
   ],
   deviceStatus: [
     { required: true, message: '请选择设备状态', trigger: 'change' }
-  ],
-  firmwareVersion: [
-    { required: true, message: '请输入固件版本', trigger: 'blur' }
   ],
   mqttTopic: [
     { required: true, message: '请输入MQTT主题', trigger: 'blur' }
@@ -532,6 +611,167 @@ const handleAddDevice = async () => {
     ElMessage.error(error.response?.data?.message || '添加设备失败')
   } finally {
     adding.value = false
+  }
+}
+
+// 添加设备列表相关的响应式变量
+const deviceTableData = ref([])
+const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
+
+// 获取设备列表数据
+const fetchDeviceList = async () => {
+  try {
+    loading.value = true
+    const response = await getUserDevices()
+    
+    if (Array.isArray(response)) {
+      // 计算总数
+      total.value = response.length
+      
+      // 计算当前页的数据
+      const startIndex = (currentPage.value - 1) * pageSize.value
+      const endIndex = startIndex + pageSize.value
+      deviceTableData.value = response.slice(startIndex, endIndex)
+    }
+  } catch (error) {
+    console.error('获取设备列表失败:', error)
+    ElMessage.error('获取设备列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 处理页码改变
+const handleCurrentChange = (page) => {
+  currentPage.value = page
+  fetchDeviceList()
+}
+
+// 处理每页条数改变
+const handleSizeChange = (size) => {
+  pageSize.value = size
+  currentPage.value = 1 // 重置到第一页
+  fetchDeviceList()
+}
+
+// 获取设备类型名称
+const getDeviceTypeName = (type) => {
+  const typeMap = {
+    'temperature': '温度传感器',
+    'humidity': '湿度传感器',
+    'pressure': '压力传感器'
+  }
+  return typeMap[type] || type
+}
+
+// 设备描述对话框
+const showDeviceDialog = ref(false)
+const currentDevice = ref(null)
+
+// 显示设备详情
+const goToDeviceDetail = (device) => {
+  currentDevice.value = device
+  showDeviceDialog.value = true
+}
+
+// 告警记录列表
+const alarmTableData = ref([])
+const alarmLoading = ref(false)
+const alarmCurrentPage = ref(1)
+const alarmPageSize = ref(10)
+const alarmTotal = ref(0)
+const alarmDateRange = ref([])
+
+// 获取告警记录数据
+const fetchAlarmList = async () => {
+  try {
+    alarmLoading.value = true
+    
+    // 确保已经获取了设备列表数据
+    if (deviceTableData.value.length === 0) {
+      await fetchDeviceList()
+    }
+    
+    // 准备时间范围参数
+    const params = {}
+    if (alarmDateRange.value && alarmDateRange.value.length === 2) {
+      params.startTime = alarmDateRange.value[0].toISOString()
+      params.endTime = alarmDateRange.value[1].toISOString()
+    }
+    
+    const response = await getDeviceAlarms(params)
+    
+    if (Array.isArray(response)) {
+      // 计算总数
+      alarmTotal.value = response.length
+      
+      // 计算当前页的数据
+      const startIndex = (alarmCurrentPage.value - 1) * alarmPageSize.value
+      const endIndex = startIndex + alarmPageSize.value
+      alarmTableData.value = response.slice(startIndex, endIndex)
+    }
+  } catch (error) {
+    console.error('获取告警记录失败:', error)
+    ElMessage.error('获取告警记录失败')
+  } finally {
+    alarmLoading.value = false
+  }
+}
+
+// 处理告警记录分页
+const handleAlarmSizeChange = (size) => {
+  alarmPageSize.value = size
+  alarmCurrentPage.value = 1
+  fetchAlarmList()
+}
+
+const handleAlarmCurrentChange = (page) => {
+  alarmCurrentPage.value = page
+  fetchAlarmList()
+}
+
+// 处理日期范围变化
+const handleDateRangeChange = () => {
+  alarmCurrentPage.value = 1
+  fetchAlarmList()
+}
+
+// 设备分组相关的响应式变量
+const groupTableData = ref([])
+const groupLoading = ref(false)
+
+// 获取设备分组数据
+const fetchGroupList = async () => {
+  try {
+    groupLoading.value = true
+    const response = await getGroupTree()
+    
+    if (Array.isArray(response)) {
+      groupTableData.value = response
+    }
+  } catch (error) {
+    console.error('获取设备分组失败:', error)
+    ElMessage.error('获取设备分组失败')
+  } finally {
+    groupLoading.value = false
+  }
+}
+
+// 查看分组内的设备
+const viewGroupDevices = (group) => {
+  if (group.devices && group.devices.length > 0) {
+    ElMessage({
+      message: `分组 "${group.name}" 包含 ${group.devices.length} 个设备`,
+      type: 'info'
+    })
+  } else {
+    ElMessage({
+      message: `分组 "${group.name}" 暂无设备`,
+      type: 'warning'
+    })
   }
 }
 </script>
@@ -607,6 +847,53 @@ const handleAddDevice = async () => {
   
   .alert-card {
     .alert-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+  }
+
+  .device-list-card {
+    margin-top: 20px;
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .pagination-container {
+      margin-top: 20px;
+      display: flex;
+      justify-content: flex-end;
+    }
+  }
+
+  .alarm-list-card {
+    margin-top: 20px;
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      
+      .header-operations {
+        display: flex;
+        gap: 16px;
+      }
+    }
+    
+    .pagination-container {
+      margin-top: 20px;
+      display: flex;
+      justify-content: flex-end;
+    }
+  }
+
+  .group-list-card {
+    margin-top: 20px;
+    
+    .card-header {
       display: flex;
       justify-content: space-between;
       align-items: center;

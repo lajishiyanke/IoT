@@ -36,18 +36,18 @@ export const deleteAlarmRule = (deviceId, data) => {
 }
 
 // 查询告警记录
-export const getDeviceAlarms = (deviceId, params) => {
+export const getDeviceAlarms = (params) => {
   return request({
-    url: `/alarms/${deviceId}/alarms/get`,
+    url: '/alarms/get',
     method: 'get',
     params
   })
 }
 
 // 获取未处理的告警记录
-export const getUnhandledAlarms = (deviceId) => {
+export const getUnhandledAlarms = () => {
   return request({
-    url: `/alarms/${deviceId}/alarms/unhandled`,
+    url: '/alarms/unhandled',
     method: 'get'
   })
 }
@@ -55,7 +55,7 @@ export const getUnhandledAlarms = (deviceId) => {
 // 添加告警记录
 export const addAlarmRecord = (data) => {
   return request({
-    url: '/alarms/alarms/add',
+    url: '/alarms/add',
     method: 'post',
     data
   })
@@ -64,8 +64,8 @@ export const addAlarmRecord = (data) => {
 // 处理告警
 export const handleAlarm = (alarmId, params) => {
   return request({
-    url: `/alarms/${alarmId}/alarms/handle`,
+    url: `/alarms/${alarmId}/handle`,
     method: 'put',
     params
   })
-} 
+}
