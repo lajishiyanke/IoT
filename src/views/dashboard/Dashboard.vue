@@ -1,14 +1,34 @@
 <template>
   <div class="dashboard">
     <!-- 添加设备按钮 -->
-    <el-button 
-      type="primary" 
-      class="add-device-btn"
-      @click="showAddDeviceDialog = true"
-    >
-    <el-icon><Plus /></el-icon>
-      添加设备
-    </el-button>
+    <div class="action-buttons">
+      <el-button 
+        type="primary" 
+        class="action-btn"
+        @click="openAddDeviceDialog"
+      >
+        <el-icon><Plus /></el-icon>
+        添加设备
+      </el-button>
+      
+      <el-button
+        type="success"
+        class="action-btn"
+        @click="showAddGroupDialog = true"
+      >
+        <el-icon><FolderAdd /></el-icon>
+        创建分组
+      </el-button>
+      
+      <el-button
+        type="warning"
+        class="action-btn"
+        @click="showAddToGroupDialog = true"
+      >
+        <el-icon><FolderAdd /></el-icon>
+        添加到分组
+      </el-button>
+    </div>
 
     <!-- 添加设备对话框 -->
     <el-dialog
@@ -51,7 +71,7 @@
         <el-form-item label="设备分组" prop="groupId">
           <el-select v-model="deviceForm.groupId" placeholder="请选择设备分组" class="w-100">
             <el-option
-              v-for="group in deviceGroups"
+              v-for="group in groupTableData"
               :key="group.id"
               :label="group.name"
               :value="group.id"
@@ -77,6 +97,87 @@
         <span class="dialog-footer">
           <el-button @click="showAddDeviceDialog = false">取消</el-button>
           <el-button type="primary" @click="handleAddDevice" :loading="adding">
+            确认
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- 创建分组对话框 -->
+    <el-dialog
+      v-model="showAddGroupDialog"
+      title="创建设备分组"
+      width="500px"
+    >
+      <el-form
+        ref="groupFormRef"
+        :model="groupForm"
+        :rules="groupRules"
+        label-width="100px"
+      >
+        <el-form-item label="分组名称" prop="name">
+          <el-input v-model="groupForm.name" placeholder="请输入分组名称"/>
+        </el-form-item>
+        
+        <el-form-item label="分组描述" prop="description">
+          <el-input
+            v-model="groupForm.description"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入分组描述"
+          />
+        </el-form-item>
+      </el-form>
+      
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showAddGroupDialog = false">取消</el-button>
+          <el-button type="primary" @click="handleCreateGroup" :loading="creatingGroup">
+            确认
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- 添加设备到分组对话框 -->
+    <el-dialog
+      v-model="showAddToGroupDialog"
+      title="添加设备到分组"
+      width="500px"
+    >
+      <el-form
+        ref="addToGroupFormRef"
+        :model="addToGroupForm"
+        :rules="addToGroupRules"
+        label-width="100px"
+      >
+        <el-form-item label="选择设备" prop="deviceId">
+          <el-select v-model="addToGroupForm.deviceId" placeholder="请选择设备" class="w-100">
+            <el-option
+              v-for="device in deviceTableData"
+              :key="device.id"
+              :label="device.deviceName"
+              :value="device.id"
+            />
+          </el-select>
+        </el-form-item>
+        
+        <el-form-item label="选择分组" prop="groupId">
+          <el-select v-model="addToGroupForm.groupId" placeholder="请选择分组" class="w-100">
+            <el-option
+              v-for="group in groupTableData"
+              :key="group.id"
+              :label="group.name"
+              :value="group.id"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showAddToGroupDialog = false">取消</el-button>
+          <el-button type="primary" @click="handleAddToGroup" :loading="addingToGroup">
             确认
           </el-button>
         </span>
@@ -263,6 +364,7 @@
       width="30%"
     >
       <div v-if="currentDevice">
+        <p><strong>设备ID：</strong>{{ currentDevice.id }}</p>
         <p><strong>设备名称：</strong>{{ currentDevice.deviceName }}</p>
         <p><strong>设备编码：</strong>{{ currentDevice.deviceCode }}</p>
         <p><strong>设备类型：</strong>{{ getDeviceTypeName(currentDevice.deviceType) }}</p>
@@ -271,6 +373,39 @@
         <p><strong>MQTT主题：</strong>{{ currentDevice.mqttTopic }}</p>
         <p><strong>设备分组：</strong>{{ currentDevice.groupId }}</p>
       </div>
+    </el-dialog>
+
+    <!-- 分组设备列表对话框 -->
+    <el-dialog
+      v-model="showGroupDevicesDialog"
+      :title="`${currentGroup?.name || ''} - 设备列表`"
+      width="70%"
+    >
+      <el-table
+        :data="groupDevices"
+        style="width: 100%"
+        v-loading="groupDevicesLoading"
+      >
+        <el-table-column prop="deviceName" label="设备名称" />
+        <el-table-column prop="deviceCode" label="设备编码" />
+        <el-table-column prop="deviceType" label="设备类型">
+          <template #default="{ row }">
+            <el-tag>{{ getDeviceTypeName(row.deviceType) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="设备状态">
+          <template #default="{ row }">
+            <el-tag :type="row.status ? 'success' : 'danger'">
+              {{ row.status ? '在线' : '离线' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createTime" label="创建时间">
+          <template #default="{ row }">
+            {{ new Date(row.createTime).toLocaleString() }}
+          </template>
+        </el-table-column>
+      </el-table>
     </el-dialog>
 
   </div>
@@ -296,14 +431,18 @@ import {
   DataAnalysis,
   CaretRight,
   VideoCamera,
-  Plus
+  Plus,
+  FolderAdd
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { 
   addDevice, 
   getUserDevices, 
   getUserOnlineDevices,
-  getGroupTree 
+  getGroupTree,
+  createGroup,
+  addDeviceToGroup,
+  getDevicesInGroup
 } from '@/api/device'
 import { getUnhandledAlarms, getDeviceAlarms } from '@/api/alarm'
 import { getUserSensorData } from '@/api/sensor'
@@ -570,16 +709,13 @@ const deviceRules = {
   deviceStatus: [
     { required: true, message: '请选择设备状态', trigger: 'change' }
   ],
+  groupId: [
+    { required: true, message: '请选择设备分组', trigger: 'change' }
+  ],
   mqttTopic: [
     { required: true, message: '请输入MQTT主题', trigger: 'blur' }
   ]
 }
-
-// 设备分组数据（需要从后端获取）
-const deviceGroups = ref([
-  { id: 1, name: '分组1' },
-  { id: 2, name: '分组2' }
-])
 
 // 添加设备
 const handleAddDevice = async () => {
@@ -742,6 +878,10 @@ const handleDateRangeChange = () => {
 // 设备分组相关的响应式变量
 const groupTableData = ref([])
 const groupLoading = ref(false)
+const showGroupDevicesDialog = ref(false)
+const groupDevicesLoading = ref(false)
+const groupDevices = ref([])
+const currentGroup = ref(null)
 
 // 获取设备分组数据
 const fetchGroupList = async () => {
@@ -751,6 +891,16 @@ const fetchGroupList = async () => {
     
     if (Array.isArray(response)) {
       groupTableData.value = response
+      // 获取每个分组的设备数量
+      await Promise.all(groupTableData.value.map(async (group) => {
+        try {
+          const devices = await getDevicesInGroup(group.id)
+          group.deviceCount = Array.isArray(devices) ? devices.length : 0
+        } catch (error) {
+          console.error(`获取分组 ${group.id} 的设备数量失败:`, error)
+          group.deviceCount = 0
+        }
+      }))
     }
   } catch (error) {
     console.error('获取设备分组失败:', error)
@@ -761,25 +911,152 @@ const fetchGroupList = async () => {
 }
 
 // 查看分组内的设备
-const viewGroupDevices = (group) => {
-  if (group.devices && group.devices.length > 0) {
-    ElMessage({
-      message: `分组 "${group.name}" 包含 ${group.devices.length} 个设备`,
-      type: 'info'
-    })
-  } else {
-    ElMessage({
-      message: `分组 "${group.name}" 暂无设备`,
-      type: 'warning'
-    })
+const viewGroupDevices = async (group) => {
+  currentGroup.value = group
+  showGroupDevicesDialog.value = true
+  groupDevicesLoading.value = true
+  
+  try {
+    const response = await getDevicesInGroup(group.id)
+    groupDevices.value = Array.isArray(response) ? response : []
+    
+    // 更新当前分组的设备数量
+    const currentGroupIndex = groupTableData.value.findIndex(g => g.id === group.id)
+    if (currentGroupIndex !== -1) {
+      groupTableData.value[currentGroupIndex].deviceCount = groupDevices.value.length
+    }
+    
+    if (groupDevices.value.length === 0) {
+      ElMessage.warning('该分组暂无设备')
+    }
+  } catch (error) {
+    console.error('获取分组设备失败:', error)
+    ElMessage.error('获取分组设备失败')
+  } finally {
+    groupDevicesLoading.value = false
   }
+}
+
+// 创建分组对话框
+const showAddGroupDialog = ref(false)
+const creatingGroup = ref(false)
+const groupFormRef = ref(null)
+
+// 分组表单数据
+const groupForm = reactive({
+  name: '',
+  description: ''
+})
+
+// 分组表单验证规则
+const groupRules = {
+  name: [
+    { required: true, message: '请输入分组名称', trigger: 'blur' },
+    { min: 2, max: 50, message: '长度在 2 到 50 个字符', trigger: 'blur' }
+  ],
+  description: [
+    { max: 200, message: '描述不能超过 200 个字符', trigger: 'blur' }
+  ]
+}
+
+// 创建分组
+const handleCreateGroup = async () => {
+  if (!groupFormRef.value) return
+  
+  try {
+    await groupFormRef.value.validate()
+    creatingGroup.value = true
+    
+    await createGroup(groupForm)
+    
+    ElMessage.success('创建分组成功')
+    showAddGroupDialog.value = false
+    
+    // 重置表单
+    groupFormRef.value.resetFields()
+    
+    // 刷新分组列表
+    fetchGroupList()
+  } catch (error) {
+    console.error('创建分组失败:', error)
+    ElMessage.error(error.response?.data?.message || '创建分组失败')
+  } finally {
+    creatingGroup.value = false
+  }
+}
+
+// 添加设备到分组相关的响应式变量
+const showAddToGroupDialog = ref(false)
+const addingToGroup = ref(false)
+const addToGroupFormRef = ref(null)
+
+// 添加到分组表单数据
+const addToGroupForm = reactive({
+  deviceId: null,
+  groupId: null
+})
+
+// 添加到分组表单验证规则
+const addToGroupRules = {
+  deviceId: [
+    { required: true, message: '请选择设备', trigger: 'change' }
+  ],
+  groupId: [
+    { required: true, message: '请选择分组', trigger: 'change' }
+  ]
+}
+
+// 添加设备到分组
+const handleAddToGroup = async () => {
+  if (!addToGroupFormRef.value) return
+  
+  try {
+    await addToGroupFormRef.value.validate()
+    addingToGroup.value = true
+    
+    await addDeviceToGroup(addToGroupForm.groupId, addToGroupForm.deviceId)
+    
+    ElMessage.success('添加到分组成功')
+    showAddToGroupDialog.value = false
+    
+    // 重置表单
+    addToGroupFormRef.value.resetFields()
+    
+    // 刷新分组列表
+    fetchGroupList()
+  } catch (error) {
+    console.error('添加到分组失败:', error)
+    ElMessage.error(error.response?.data?.message || '添加到分组失败')
+  } finally {
+    addingToGroup.value = false
+  }
+}
+
+// 打开添加设备对话框
+const openAddDeviceDialog = async () => {
+  // 确保已加载分组数据
+  if (groupTableData.value.length === 0) {
+    await fetchGroupList()
+  }
+  showAddDeviceDialog.value = true
 }
 </script>
 
 <style lang="scss" scoped>
 .dashboard {
-  .add-device-btn {
+  .action-buttons {
     margin-bottom: 20px;
+    display: flex;
+    gap: 16px;
+    
+    .action-btn {
+      display: flex;
+      align-items: center;
+      
+      .el-icon {
+        margin-right: 8px;
+      }
+    }
   }
   
   .w-100 {

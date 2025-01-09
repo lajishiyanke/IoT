@@ -171,12 +171,14 @@
       </template>
       
       <el-table :data="unhandledAlarms" style="width: 100%">
-        <el-table-column prop="time" label="时间" width="180" />
-        <el-table-column prop="alarmType" label="类型" width="120">
+        <el-table-column label="时间" width="180">
           <template #default="{ row }">
-            <el-tag :type="row.alarmLevel === 'error' ? 'danger' : 'warning'">
-              {{ row.alarmType }}
-            </el-tag>
+            {{ new Date(row.createTime).toLocaleString() }}
+          </template>
+        </el-table-column>
+        <el-table-column label="设备名称" width="150">
+          <template #default="{ row }">
+            {{ getDeviceName(row.deviceId) }}
           </template>
         </el-table-column>
         <el-table-column prop="channelId" label="通道" width="120" />
@@ -321,9 +323,6 @@ const chartOption = reactive({
       type: 'cross'
     }
   },
-  /* legend: {
-    data: selectedChannels.value.map(ch => `通道${ch}`)
-  },*/
   grid: {
     left: '3%',
     right: '4%',
@@ -338,6 +337,9 @@ const chartOption = reactive({
   },
   yAxis: {
     type: 'value',
+    name: '',
+    nameLocation: 'middle',
+    nameGap: 40,
     splitLine: {
       lineStyle: {
         type: 'dashed'
@@ -475,34 +477,45 @@ const startStream = async () => {
   try {
     const endTime = new Date()
     const startTime = new Date(endTime.getTime() - 1 * 60 * 60 * 1000) // 1小时前
-
+    console.log('开始时间:', startTime)
+    console.log('结束时间:', endTime)
     // 将 Proxy(Array) 转换为字符串
     const channelIdString = Array.from(selectedChannels.value).join(',')
+
+    // 添加时区偏移
+    const timeZoneOffset = new Date().getTimezoneOffset() * 60000
+    const localStartTime = new Date(startTime.getTime() - timeZoneOffset)
+    const localEndTime = new Date(endTime.getTime() - timeZoneOffset)
 
     // 打印完整的请求参数
     console.log('请求参数:', {
       deviceId: selectedDevice.value,
       channelId: channelIdString,  // 使用转换后的字符串
-      startTime: startTime.toISOString(),
-      endTime: endTime.toISOString()
+      startTime: localStartTime.toISOString(),
+      endTime: localEndTime.toISOString()
     })
 
     // 发送请求获取传感器数据
     const response = await getDeviceSensorData(selectedDevice.value, {
-      channelId: channelIdString,  // 使用转换后的字符串
-      startTime: startTime.toISOString(),
-      endTime: endTime.toISOString()
+      channelId: channelIdString,
+      startTime: localStartTime.toISOString(),
+      endTime: localEndTime.toISOString()
     })
 
-    if (!response || !response.data) {
-      console.warn('响应数据为空，请检查：', response)
-      return
-    }
+    // 打印响应数据用于调试
+    console.log('获取到的原始响应:', response)
 
-    console.log('获取到的通道数据:', channelIdString)  // 打印转换后的字符串
+    console.log('获取到的通道数据:', channelIdString)
     console.log('获取到的传感器数据:', response)
 
     if (Array.isArray(response)) {
+      // 从第一条数据中获取单位和数据类型信息
+      if (response.length > 0) {
+        const { dataType, dataUnit } = response[0]
+        // 更新图表的y轴标签
+        chartOption.yAxis.name = `${dataType}(${dataUnit})`
+      }
+
       // 清空现有数据
       chartOption.series.forEach(series => {
         series.data = []
@@ -812,6 +825,12 @@ const handleTimeWindowChange = async () => {
     console.error('获取数据失败:', error)
     ElMessage.error('获取数据失败')
   }
+}
+
+// 根据设备ID获取设备名称
+const getDeviceName = (deviceId) => {
+  const device = deviceList.value.find(d => d.id === deviceId)
+  return device ? device.deviceName : '未知设备'
 }
 
 onMounted(() => {

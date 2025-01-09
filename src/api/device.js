@@ -75,7 +75,10 @@ export const createGroup = (data) => {
   return request({
     url: '/device-management/groups',
     method: 'post',
-    data
+    params: {
+      name: data.name,
+      description: data.description
+    }
   })
 }
 
