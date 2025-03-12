@@ -63,4 +63,13 @@ export const checkUsername = (username) => {
     url: `/users/has/${username}`,
     method: 'get'
   })
-} 
+}
+
+// 修改密码
+export const changePassword = (data) => {
+  return request({
+    url: '/users/change-password',
+    method: 'put',
+    data
+  })
+}

@@ -64,3 +64,16 @@ export function processByPython(signalDTO, scriptName, params = {}) {
     data: params
   })
 } 
+
+/**
+ * 信号预测
+ * @param {Object} data 包含信号和时间的数据
+ * @returns {Promise<Object>} 返回预测结果
+ */
+export function signalPredict(data) {
+  return request({
+    url: '/signal/predict',
+    method: 'post',
+    data
+  })
+}

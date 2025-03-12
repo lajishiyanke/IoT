@@ -76,6 +76,15 @@ const routes = [
     ]
   },
   {
+    path: '/forgot-password',
+    name: 'ForgotPassword',
+    component: () => import('@/views/auth/ForgotPassword.vue'),
+    meta: {
+      title: '忘记密码',
+      requiresAuth: false
+    }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../views/error/404.vue')

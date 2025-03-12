@@ -5,7 +5,7 @@ import router from '@/router'
 // 创建 axios 实例
 const request = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: 120000,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
@@ -41,7 +41,7 @@ request.interceptors.request.use(
       headers: config.headers,
       params: config.params,
       data: config.data,
-      token: token // 打印token用于调试
+      token: token
     })
     
     if (token) {

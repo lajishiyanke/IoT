@@ -52,7 +52,7 @@
                     <el-option label="时域分析" value="time" />
                     <el-option label="频域分析" value="frequency" />
                     <el-option label="时频分析" value="time-frequency" />
-                    <el-option label="相关分析" value="correlation" />
+                    <el-option label="模型预测" value="predict" />
                   </el-select>
                 </el-form-item>
               </el-col>
@@ -141,72 +141,50 @@
         </el-card>
       </el-col>
 
-      <!-- 分析指标 -->
-      <el-col :md="12" :sm="24" v-for="(metric, index) in analysisMetrics" :key="index">
-        <el-card class="metric-card">
+      <!-- 预测结果列表 -->
+      <el-col :span="24" v-if="predictionResults.length > 0">
+        <el-card class="prediction-results-card">
           <template #header>
-            <div class="metric-header">
-              <span>{{ metric.title }}</span>
-              <el-tooltip
-                :content="metric.description"
-                placement="top"
-              >
-                <el-icon><QuestionFilled /></el-icon>
-              </el-tooltip>
+            <div class="card-header">
+              <span>预测结果列表</span>
+              <el-button type="primary" link @click="predictionResults = []">
+                清空列表
+              </el-button>
             </div>
           </template>
-          <div class="metric-content">
-            <div class="metric-value">{{ metric.value }}</div>
-            <div class="metric-unit">{{ metric.unit }}</div>
-            <div
-              class="metric-trend"
-              :class="metric.trend"
-            >
-              <el-icon>
-                <component :is="metric.trend === 'up' ? 'ArrowUp' : 'ArrowDown'" />
-              </el-icon>
-              {{ metric.change }}%
-            </div>
-          </div>
+          
+          <el-table :data="predictionResults" style="width: 100%">
+            <el-table-column prop="time" label="预测时间" width="180" />
+            <el-table-column prop="x" label="X值">
+              <template #default="{ row }">
+                {{ row.x.toExponential(4) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="y" label="Y值">
+              <template #default="{ row }">
+                {{ row.y.toExponential(4) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="size" label="Size值">
+              <template #default="{ row }">
+                {{ row.size.toExponential(4) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="100">
+              <template #default="{ $index }">
+                <el-button 
+                  type="danger" 
+                  link 
+                  @click="predictionResults.splice($index, 1)"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </el-card>
       </el-col>
     </el-row>
-
-    <!-- 异常检测结果 -->
-    <el-card class="anomaly-card">
-      <template #header>
-        <div class="anomaly-header">
-          <span>异常检测结果</span>
-          <el-tag
-            :type="hasAnomalies ? 'danger' : 'success'"
-          >
-            {{ hasAnomalies ? '发现异常' : '正常' }}
-          </el-tag>
-        </div>
-      </template>
-      <el-timeline v-if="hasAnomalies">
-        <el-timeline-item
-          v-for="(anomaly, index) in anomalies"
-          :key="index"
-          :type="anomaly.level"
-          :timestamp="anomaly.time"
-        >
-          {{ anomaly.description }}
-          <div class="anomaly-actions">
-            <el-button type="primary" link size="small" @click="handleAnomalyDetail(anomaly)">
-              查看详情
-            </el-button>
-            <el-button type="success" link size="small" @click="handleAnomalyProcess(anomaly)">
-              处理
-            </el-button>
-          </div>
-        </el-timeline-item>
-      </el-timeline>
-      <div v-else class="no-anomaly">
-        <el-icon :size="48" color="#67c23a"><CircleCheckFilled /></el-icon>
-        <p>未检测到异常</p>
-      </div>
-    </el-card>
   </div>
 </template>
 
@@ -230,13 +208,13 @@ import {
   Upload,
   QuestionFilled,
   ArrowUp,
-  ArrowDown,
-  CircleCheckFilled
+  ArrowDown
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as XLSX from 'xlsx'
 import Papa from 'papaparse'
-import { frequencyAnalysis, waveletTransform } from '@/api/analysis'
+import { frequencyAnalysis, waveletTransform, signalPredict } from '@/api/analysis'
+import axios from 'axios'
 
 // 注册 ECharts 组件
 use([
@@ -305,14 +283,42 @@ const frequencyChartOption = reactive({
   }]
 })
 
-// 时频分析图表配置
+// 修改时频分析图表配置
 const timeFreqChartOption = reactive({
   tooltip: {
-    trigger: 'item'
+    position: 'top',
+    formatter: (params) => {
+      const time = timeFreqData.times[params.data[0]]
+      const scale = timeFreqData.scales[params.data[1]]
+      const intensity = params.data[2].toFixed(4)
+      return `时间: ${Number(time).toExponential(4)}s<br/>尺度: ${Number(scale).toFixed(2)}<br/>强度: ${intensity}`
+    }
   },
   grid: {
     left: '10%',
-    right: '10%'
+    right: '10%',
+    top: '10%',
+    bottom: '15%'
+  },
+  xAxis: {
+    type: 'category',
+    name: '时间 (s)',
+    nameLocation: 'middle',
+    nameGap: 30,
+    data: [],
+    axisLabel: {
+      formatter: (value) => Number(value).toExponential(2)
+    }
+  },
+  yAxis: {
+    type: 'category',
+    name: '尺度',  // 改为尺度
+    nameLocation: 'middle',
+    nameGap: 45,
+    data: [],
+    axisLabel: {
+      formatter: (value) => Number(value).toFixed(2)
+    }
   },
   visualMap: {
     type: 'continuous',
@@ -321,35 +327,21 @@ const timeFreqChartOption = reactive({
     calculable: true,
     orient: 'horizontal',
     left: 'center',
-    bottom: '5%',
+    bottom: '0%',
     inRange: {
-      color: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#ffffbf', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026']
-    }
-  },
-  xAxis: {
-    type: 'category',
-    name: '时间',
-    nameLocation: 'middle',
-    nameGap: 40,
-    data: []
-  },
-  yAxis: {
-    type: 'category',
-    name: '频率 (kHz)',
-    nameLocation: 'middle',
-    nameGap: 40,
-    data: []
+      color: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#e0f3f8', 
+              '#ffffbf', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026']
+    },
+    realtime: false,
+    scale: true
   },
   series: [{
     type: 'heatmap',
     data: [],
-    label: {
-      show: false
-    },
     emphasis: {
       itemStyle: {
-        borderColor: '#333',
-        borderWidth: 1
+        shadowBlur: 10,
+        shadowColor: 'rgba(0, 0, 0, 0.5)'
       }
     },
     progressive: 1000,
@@ -357,42 +349,11 @@ const timeFreqChartOption = reactive({
   }]
 })
 
-// 分析指标
-const analysisMetrics = ref([
-  {
-    title: '峰值频率',
-    value: '123.45',
-    unit: 'Hz',
-    trend: 'up',
-    change: '5.2',
-    description: '信号主要频率成分'
-  },
-  {
-    title: 'RMS值',
-    value: '0.856',
-    unit: 'mV',
-    trend: 'down',
-    change: '2.1',
-    description: '信号有效值'
-  }
-])
-
-// 异常检测结果
-const hasAnomalies = ref(true)
-const anomalies = ref([
-  {
-    time: '2024-03-20 14:30:25',
-    level: 'warning',
-    description: '通道1信号幅值异常',
-    details: '...'
-  },
-  {
-    time: '2024-03-20 14:28:15',
-    level: 'danger',
-    description: '频率成分突变',
-    details: '...'
-  }
-])
+// 修改存储数据的响应式变量
+const timeFreqData = reactive({
+  times: [],
+  scales: []  // 改为scales
+})
 
 // 文件输入引用
 const fileInput = ref(null)
@@ -402,6 +363,9 @@ const importedData = ref({
   xData: [],
   yData: []
 })
+
+// 存储预测结果列表
+const predictionResults = ref([])
 
 // 触发文件选择
 const triggerFileInput = () => {
@@ -413,26 +377,58 @@ const handleFileChange = async (event) => {
   const file = event.target.files[0]
   if (!file) return
 
+  console.time('数据导入耗时')  // 开始计时
   try {
     if (file.name.endsWith('.csv')) {
       // 处理 CSV 文件
       const text = await file.text()
       Papa.parse(text, {
         complete: (results) => {
-          // 假设 CSV 文件有两列：时间和数值
           const data = results.data
-          importedData.value.xData = data.map(row => row.time || row.Time || row[0])
-          importedData.value.yData = data.map(row => Number(row.value || row.Value || row[1]))
           
+          // 移除空行和无效数据
+          const validData = data.filter(row => {
+            return row.length >= 2 && 
+                   row[0] !== undefined && 
+                   row[0] !== null && 
+                   row[0] !== '' &&
+                   !isNaN(Number(row[1]))
+          })
+          
+          // 第一列为时间，第二列为信号幅值
+          importedData.value.xData = validData.map(row => row[0])
+          importedData.value.yData = validData.map(row => Number(row[1]))
+          
+          // 只打印数据点数量和前几个样本
+          console.log('数据导入信息:', {
+            totalPoints: validData.length,
+            sampleData: {
+              time: importedData.value.xData.slice(0, 3),
+              value: importedData.value.yData.slice(0, 3)
+            }
+          })
+          
+          // 更新时域图表
           if (analysisParams.method === 'time') {
-            updateTimeChart()
+            chartOption2D.xAxis = {
+              type: 'category',
+              name: '时间',
+              data: importedData.value.xData
+            }
+            chartOption2D.series[0].data = importedData.value.yData
           }
           
-          console.log('CSV数据:', results.data)
-          ElMessage.success('CSV文件导入成功')
+          ElMessage.success(`CSV文件导入成功，共${validData.length}个数据点`)
+          console.timeEnd('数据导入耗时')  // CSV文件处理完成时计时结束
         },
-        header: true,
-        skipEmptyLines: true
+        header: false,
+        skipEmptyLines: true,
+        dynamicTyping: true,
+        error: (error) => {
+          console.error('CSV解析错误:', error)
+          ElMessage.error('CSV文件解析失败')
+          console.timeEnd('数据导入耗时')  // CSV处理出错时也要结束计时
+        }
       })
     } else {
       // 处理 Excel 文件
@@ -442,34 +438,61 @@ const handleFileChange = async (event) => {
       const jsonData = XLSX.utils.sheet_to_json(worksheet)
       
       // 提取时间和幅值数据
-      importedData.value.xData = jsonData.map(row => row['时间'])
-      importedData.value.yData = jsonData.map(row => parseFloat(row['幅值']))
+      importedData.value.xData = jsonData.map(row => row['0'])  // 第一列是时间
+      importedData.value.yData = jsonData.map(row => Number(row['0_1']))  // 第二列是幅值
       
       if (analysisParams.method === 'time') {
         // 直接更新图表
-        chartOption2D.xAxis.data = importedData.value.xData
-        chartOption2D.series[0].data = importedData.value.yData
+        chartOption2D.xAxis = {
+          type: 'category',
+          name: '时间 (s)',
+          data: importedData.value.xData
+        }
         
-        // 更新坐标轴名称
-        chartOption2D.xAxis.name = '时间'
-        chartOption2D.yAxis.name = '幅值'
+        chartOption2D.series[0] = {
+          type: 'line',
+          name: '幅值',
+          data: importedData.value.yData,
+          smooth: true
+        }
       }
       
-      console.log('Excel数据:', jsonData)
-      ElMessage.success('Excel文件导入成功')
+      // 打印数据点数量和前几个样本
+      console.log('数据导入信息:', {
+        totalPoints: jsonData.length,
+        sampleData: {
+          time: importedData.value.xData.slice(0, 3),
+          value: importedData.value.yData.slice(0, 3)
+        }
+      })
+      
+      ElMessage.success(`Excel文件导入成功，共${jsonData.length}个数据点`)
+      console.timeEnd('数据导入耗时')  // Excel文件处理完成时计时结束
     }
   } catch (error) {
     console.error('文件读取失败:', error)
     ElMessage.error('文件读取失败')
+    console.timeEnd('数据导入耗时')  // 发生错误时也要结束计时
   }
 
+  // 清空文件输入，允许重复选择同一文件
   event.target.value = ''
 }
 
 // 更新时域图表
 const updateTimeChart = () => {
+  // 确保数据有效
+  if (!importedData.value.xData.length || !importedData.value.yData.length) {
+    console.warn('没有有效的数据可以显示')
+    return
+  }
+
   chartOption2D.xAxis.data = importedData.value.xData
   chartOption2D.series[0].data = importedData.value.yData
+  
+  // 更新坐标轴配置
+  chartOption2D.xAxis.name = '时间'
+  chartOption2D.yAxis.name = '幅值'
 }
 
 // 监听分析方法变化
@@ -479,11 +502,21 @@ watch(() => analysisParams.method, (newMethod) => {
   }
 })
 
+// 添加归一化函数
+const normalize = (data, min, max) => {
+  return data.map(point => [
+    point[0],
+    point[1],
+    (point[2] - min) / (max - min)
+  ])
+}
+
 // 方法
 const startAnalysis = async () => {
   analyzing.value = true
   try {
     if (analysisParams.method === 'frequency') {
+      console.time('频域分析耗时')  // 开始计时
       // 准备频域分析的数据
       const signalDTO = {
         times: importedData.value.xData,   // 直接使用导入的时间数据
@@ -515,117 +548,108 @@ const startAnalysis = async () => {
       }
 
       ElMessage.success('频域分析完成')
+      console.timeEnd('频域分析耗时')  // 结束计时
     } else if (analysisParams.method === 'time-frequency') {
-      // 生成等差数组 1:1:N
-      const scales = Array.from(
-        { length: analysisParams.scaleN },
-        (_, index) => index + 1
-      )
+      console.time('时频分析耗时')  // 开始计时
+      try {
+        // 生成对数分布的尺度
+        const scales = Array.from(
+          { length: analysisParams.scaleN },
+          (_, index) => Math.exp(Math.log(2) * index / 8)
+        )
 
-      // 准备时频分析数据
-      const request = {
-        signal: {
-          times: importedData.value.xData,
-          values: importedData.value.yData
-        },
-        scales: scales  // 使用生成的等差数组
-      }
-
-      console.log('发送的时频分析数据:', request)
-      const result = await waveletTransform(request)
-      console.log('时频分析结果:', result)
-
-      // 更新时频图表
-      if (result && result.coefficients) {
-        // 解构并获取实际的数组
-        const times = result.times[0]
-        const frequencies = result.frequencies[0]  // 使用频率数组
-        const coefficients = result.coefficients
-        
-        // 准备热力图数据
-        const data = []
-        // 将频率转换为 kHz 并创建频率刻度
-        const freqLabels = frequencies.map(f => (f / 1000).toFixed(2))
-        
-        // 对每个尺度的系数
-        for (let i = 0; i < coefficients.length; i++) {
-          // 对每个时间点
-          for (let j = 0; j < times.length; j++) {
-            // 计算系数的绝对值作为强度
-            const intensity = Math.abs(coefficients[i][j] || 0)
-            // 确保强度值有效
-            if (!isNaN(intensity) && isFinite(intensity)) {
-              data.push([j, i, intensity])  // 使用索引作为坐标
-            }
-          }
-        }
-
-        console.log('热力图数据:', {
-          timePoints: times.length,
-          frequencyPoints: frequencies.length,
-          dataPoints: data.length,
-          sampleData: data.slice(0, 5)
-        })
-
-        // 更新坐标轴数据
-        timeFreqChartOption.xAxis.data = times
-        timeFreqChartOption.yAxis.data = freqLabels
-
-        // 更新热力图配置
-        timeFreqChartOption.series[0] = {
-          type: 'heatmap',
-          data: data,
-          emphasis: {
-            itemStyle: {
-              borderColor: '#333',
-              borderWidth: 1
-            }
+        const request = {
+          signal: {
+            times: [...importedData.value.xData],
+            values: [...importedData.value.yData]
           },
-          coordinateSystem: 'cartesian2d',
-          progressive: 1000,
-          animation: false,
-          itemStyle: {
-            borderWidth: 0
-          }
+          scales: scales
         }
 
-        // 更新值域范围
-        const maxValue = Math.max(...data.map(item => item[2]))
-        const minValue = Math.min(...data.map(item => item[2]))
-        console.log('值域范围:', { min: minValue, max: maxValue })
-
-        timeFreqChartOption.visualMap.max = maxValue
-        timeFreqChartOption.visualMap.min = minValue
-
-        // 强制图表重新渲染
-        nextTick(() => {
-          const chart = timeFreqChartRef.value
-          if (chart) {
-            chart.resize()
-          }
+        console.log('发送的时频分析数据:', {
+          dataLength: request.signal.times.length,
+          scalesLength: request.scales.length,
+          scaleRange: [scales[0], scales[scales.length - 1]]
         })
-      }
 
-      ElMessage.success('时频分析完成')
-    } else {
-      // 其他分析方法的处理...
-      const signals = importedData.value.yData.map(value => parseFloat(value))
-      
-      const response = await fetch('/api/analysis', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(signals)
-      })
-      
-      if (!response.ok) {
-        throw new Error('分析请求失败')
+        const result = await waveletTransform(request)
+
+        if (result && result.coefficients) {
+          const times = result.times[0]
+          const scales = result.scales[0]  // 使用scales
+          const coefficients = result.coefficients
+
+          // 更新时间和尺度数据
+          timeFreqData.times = times
+          timeFreqData.scales = scales
+
+          // 创建热力图数据
+          const data = []
+          for (let i = 0; i < scales.length; i++) {
+            for (let j = 0; j < times.length; j++) {
+              const intensity = Math.abs(coefficients[i][j])
+              if (!isNaN(intensity) && isFinite(intensity)) {
+                data.push([j, i, intensity])
+              }
+            }
+          }
+
+          // 计算值域范围并归一化数据
+          let minValue = Infinity
+          let maxValue = -Infinity
+          for (const point of data) {
+            const value = point[2]
+            if (value < minValue) minValue = value
+            if (value > maxValue) maxValue = value
+          }
+
+          const normalizedData = normalize(data, minValue, maxValue)
+
+          // 更新图表配置
+          timeFreqChartOption.xAxis.data = times.map(t => t.toExponential(4))
+          timeFreqChartOption.yAxis.data = scales.map(s => s.toFixed(2))  // 显示尺度值
+          timeFreqChartOption.visualMap.min = 0
+          timeFreqChartOption.visualMap.max = 1
+          timeFreqChartOption.series[0].data = normalizedData
+
+          // 强制图表重新渲染
+          nextTick(() => {
+            const chart = timeFreqChartRef.value
+            if (chart) {
+              chart.resize()
+            }
+          })
+
+          ElMessage.success('时频分析完成')
+          console.timeEnd('时频分析耗时')  // 结束计时
+        }
+      } catch (error) {
+        console.error('时频分析失败:', error)
+        ElMessage.error('时频分析失败，请稍后重试')
       }
-      
-      const result = await response.json()
-      console.log('分析结果:', result)
-      ElMessage.success('分析完成')
+    } else if (analysisParams.method === 'predict') {
+      try {
+        const result = await signalPredict({
+          values: importedData.value.yData,
+          times: importedData.value.xData
+        })
+
+        console.log('预测结果:', result)
+        
+        // 添加新的预测结果到列表
+        predictionResults.value.push({
+          id: Date.now(),
+          x: result.x,
+          y: result.y,
+          size: result.size,
+          time: new Date().toLocaleString()
+        })
+
+        ElMessage.success('预测完成')
+      } catch (error) {
+        console.error('预测失败:', error)
+        ElMessage.error('预测失败: ' + error.message)
+      }
     }
   } catch (error) {
     console.error('分析失败:', error)
@@ -637,14 +661,6 @@ const startAnalysis = async () => {
 
 const exportResults = () => {
   ElMessage.success('结果导出成功')
-}
-
-const handleAnomalyDetail = (anomaly) => {
-  // 显示异常详情
-}
-
-const handleAnomalyProcess = (anomaly) => {
-  // 处理异常
 }
 
 const chartRef = ref(null)
@@ -690,80 +706,48 @@ const timeFreqChartRef = ref(null)
         }
       }
     }
-    
-    .metric-card {
-      margin-bottom: 20px;
-      
-      .metric-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      
-      .metric-content {
-        text-align: center;
-        padding: 16px;
-        
-        .metric-value {
-          font-size: 32px;
-          font-weight: bold;
-          color: var(--text-primary);
-        }
-        
-        .metric-unit {
-          color: var(--text-regular);
-          margin: 8px 0;
-        }
-        
-        .metric-trend {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 4px;
-          
-          &.up {
-            color: var(--el-color-danger);
-          }
-          
-          &.down {
-            color: var(--el-color-success);
-          }
-        }
-      }
-    }
-  }
-  
-  .anomaly-card {
-    .anomaly-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    
-    .anomaly-actions {
-      margin-top: 8px;
-    }
-    
-    .no-anomaly {
-      text-align: center;
-      padding: 40px;
-      color: var(--text-regular);
-      
-      p {
-        margin-top: 16px;
-      }
-    }
   }
 }
 
 // 深色主题适配
 .dark-theme {
   .control-panel,
-  .analysis-results,
-  .anomaly-card {
+  .analysis-results {
     .el-card {
       background-color: var(--background-color);
     }
+  }
+}
+
+.prediction-results {
+  margin-bottom: 20px;
+  
+  .prediction-card {
+    margin-bottom: 20px;
+    
+    .prediction-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .prediction-container {
+      height: 500px;
+      
+      .el-table {
+        height: 100%;
+      }
+    }
+  }
+}
+
+.prediction-results-card {
+  margin-bottom: 20px;
+  
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
 }
 </style> 

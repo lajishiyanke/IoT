@@ -5,23 +5,13 @@
       <el-col :md="8" :sm="24">
         <el-card class="info-card">
           <div class="user-header">
-            <el-upload
-              class="avatar-uploader"
-              action="/api/upload"
-              :show-file-list="false"
-              :on-success="handleAvatarSuccess"
+            <el-avatar
+              :size="100"
+              :src="defaultAvatar"
+              class="avatar"
             >
-              <el-avatar
-                :size="100"
-                :src="userInfo.avatar"
-                class="avatar"
-              >
-                {{ userInfo.username?.charAt(0)?.toUpperCase() }}
-              </el-avatar>
-              <div class="upload-mask">
-                <el-icon><Camera /></el-icon>
-              </div>
-            </el-upload>
+              {{ userInfo.username?.charAt(0)?.toUpperCase() }}
+            </el-avatar>
             <h2>{{ userInfo.username }}</h2>
             <p>{{ userInfo.role }}</p>
           </div>
@@ -36,10 +26,6 @@
             <div class="info-item">
               <el-icon><Phone /></el-icon>
               <span>{{ userInfo.phone }}</span>
-            </div>
-            <div class="info-item">
-              <el-icon><Location /></el-icon>
-              <span>{{ userInfo.department }}</span>
             </div>
           </div>
         </el-card>
@@ -71,12 +57,6 @@
                 </el-form-item>
                 <el-form-item label="手机号" prop="phone">
                   <el-input v-model="profileData.phone" />
-                </el-form-item>
-                <el-form-item label="部门" prop="department">
-                  <el-input v-model="profileData.department" />
-                </el-form-item>
-                <el-form-item label="职位" prop="position">
-                  <el-input v-model="profileData.position" />
                 </el-form-item>
               </el-tab-pane>
 
@@ -124,14 +104,13 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
+import { getCurrentUser, updateUser, changePassword } from '@/api/user'
 import {
-  Camera,
   Message,
-  Phone,
-  Location
+  Phone
 } from '@element-plus/icons-vue'
 
 const authStore = useAuthStore()
@@ -139,21 +118,18 @@ const activeTab = ref('basic')
 
 // 用户信息
 const userInfo = reactive({
-  username: 'Admin User',
-  role: '系统管理员',
-  email: 'admin@example.com',
-  phone: '13800138000',
-  department: '研发部',
+  username: '',
+  role: '',
+  email: '',
+  phone: '',
   avatar: ''
 })
 
 // 表单数据
 const profileData = reactive({
-  username: userInfo.username,
-  email: userInfo.email,
-  phone: userInfo.phone,
-  department: userInfo.department,
-  position: '高级工程师',
+  username: '',
+  email: '',
+  phone: '',
   oldPassword: '',
   newPassword: '',
   confirmPassword: '',
@@ -164,18 +140,6 @@ const profileData = reactive({
 
 // 表单验证规则
 const rules = {
-  username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '长度在 3 到 20 个字符', trigger: 'blur' }
-  ],
-  email: [
-    { required: true, message: '请输入邮箱地址', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }
-  ],
-  phone: [
-    { required: true, message: '请输入手机号', trigger: 'blur' },
-    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号', trigger: 'blur' }
-  ],
   oldPassword: [
     { required: true, message: '请输入原密码', trigger: 'blur' }
   ],
@@ -198,21 +162,89 @@ const rules = {
   ]
 }
 
-// 方法
-const handleAvatarSuccess = (response) => {
-  userInfo.avatar = response.url
-  ElMessage.success('头像上传成功')
-}
+// 添加默认头像
+const defaultAvatar = 'public/20200414210224_dnzpo.jpg'  // 替换为您的默认头像路径
 
-const saveProfile = async () => {
+// 获取当前用户信息
+const fetchUserInfo = async () => {
   try {
-    // 保存用户信息
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    ElMessage.success('保存成功')
+    const response = await getCurrentUser()
+    // 更新用户信息
+    Object.assign(userInfo, response)
+    // 更新表单数据
+    Object.assign(profileData, {
+      username: response.username,
+      email: response.email,
+      phone: response.phone
+    })
+    console.log('获取到的用户信息:', response)
   } catch (error) {
-    ElMessage.error('保存失败')
+    console.error('获取用户信息失败:', error)
+    ElMessage.error('获取用户信息失败')
   }
 }
+
+// 保存个人信息
+const saveProfile = async () => {
+  try {
+    // 先进行表单验证
+    await profileForm.value.validate()
+    
+    if (activeTab.value === 'basic') {
+      // 保存基本信息
+      await updateUser(userInfo.id, {
+        email: profileData.email,
+        phone: profileData.phone
+      })
+      ElMessage.success('保存成功')
+      // 重新获取用户信息
+      await fetchUserInfo()
+    } else if (activeTab.value === 'security') {
+      // 处理密码修改
+      if (!profileData.oldPassword || !profileData.newPassword) {
+        ElMessage.warning('请填写完整的密码信息')
+        return
+      }
+      
+      if (profileData.newPassword !== profileData.confirmPassword) {
+        ElMessage.error('两次输入的密码不一致')
+        return
+      }
+      
+      try {
+        // 调用修改密码接口
+        await changePassword({
+          oldPassword: profileData.oldPassword,
+          newPassword: profileData.newPassword
+        })
+        
+        // 清空密码输入框
+        profileData.oldPassword = ''
+        profileData.newPassword = ''
+        profileData.confirmPassword = ''
+        
+        ElMessage.success('密码修改成功')
+      } catch (error) {
+        if (error.response?.status === 403) {
+          ElMessage.error('原密码错误或权限不足')
+        } else {
+          ElMessage.error(error.response?.data?.message || '密码修改失败')
+        }
+      }
+    }
+  } catch (error) {
+    console.error('保存失败:', error)
+    ElMessage.error(error.response?.data?.message || '保存失败')
+  }
+}
+
+// 添加表单引用
+const profileForm = ref(null)
+
+// 在组件挂载时获取用户信息
+onMounted(() => {
+  fetchUserInfo()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -222,36 +254,9 @@ const saveProfile = async () => {
       text-align: center;
       padding: 20px 0;
       
-      .avatar-uploader {
-        position: relative;
-        display: inline-block;
-        cursor: pointer;
-        
-        .avatar {
-          display: block;
-          margin: 0 auto;
-        }
-        
-        .upload-mask {
-          position: absolute;
-          top: 0;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 100px;
-          height: 100px;
-          background: rgba(0, 0, 0, 0.5);
-          border-radius: 50%;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          color: #fff;
-          opacity: 0;
-          transition: opacity 0.3s;
-          
-          &:hover {
-            opacity: 1;
-          }
-        }
+      .avatar {
+        display: block;
+        margin: 0 auto;
       }
       
       h2 {

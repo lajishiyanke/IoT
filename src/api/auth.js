@@ -39,16 +39,21 @@ export const sendVerificationCode = (email) => {
   })
 }
 
-// 重置密码
-export const resetPassword = (email, newPassword, verificationCode) => {
+// 发送重置密码验证码
+export const sendResetCode = (email) => {
   return request({
-    url: '/auth/reset-password',
+    url: '/auth/password/code',
     method: 'post',
-    params: {
-      email,
-      newPassword,
-      verificationCode
-    }
+    data: { email }
+  })
+}
+
+// 重置密码
+export const resetPassword = (data) => {
+  return request({
+    url: '/auth/password/reset',
+    method: 'post',
+    data
   })
 }
 

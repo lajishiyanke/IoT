@@ -1,7 +1,10 @@
 import request from '@/utils/request'
 
 // 获取告警规则
-export const getAlarmRules = (deviceId) => {
+export function getAlarmRules(deviceId) {
+  if (!deviceId) {
+    return Promise.reject(new Error('设备ID不能为空'))
+  }
   return request({
     url: `/alarms/${deviceId}/rules/get`,
     method: 'get'
@@ -9,29 +12,38 @@ export const getAlarmRules = (deviceId) => {
 }
 
 // 设置告警规则
-export const setAlarmRule = (deviceId, data) => {
+export function setAlarmRule(deviceId, rule) {
+  if (!deviceId) {
+    return Promise.reject(new Error('设备ID不能为空'))
+  }
   return request({
     url: `/alarms/${deviceId}/rules/set`,
     method: 'post',
-    data
+    data: rule
   })
 }
 
 // 修改告警规则
-export const updateAlarmRule = (deviceId, data) => {
+export function updateAlarmRule(deviceId, rule) {
+  if (!deviceId) {
+    return Promise.reject(new Error('设备ID不能为空'))
+  }
   return request({
     url: `/alarms/${deviceId}/rules/update`,
     method: 'put',
-    data
+    data: rule
   })
 }
 
 // 删除告警规则
-export const deleteAlarmRule = (deviceId, data) => {
+export function deleteAlarmRule(deviceId, rule) {
+  if (!deviceId) {
+    return Promise.reject(new Error('设备ID不能为空'))
+  }
   return request({
     url: `/alarms/${deviceId}/rules/delete`,
     method: 'delete',
-    data
+    data: rule
   })
 }
 
