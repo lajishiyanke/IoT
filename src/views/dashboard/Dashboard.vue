@@ -341,6 +341,17 @@
           </template>
         </el-table-column>
         <el-table-column prop="handleNote" label="处理备注" show-overflow-tooltip />
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              type="danger"
+              link
+              @click="handleDeleteAlarm(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
       
       <!-- 告警记录分页 -->
@@ -434,7 +445,7 @@ import {
   Plus,
   FolderAdd
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   addDevice, 
   getUserDevices, 
@@ -444,7 +455,7 @@ import {
   addDeviceToGroup,
   getDevicesInGroup
 } from '@/api/device'
-import { getUnhandledAlarms, getDeviceAlarms } from '@/api/alarm'
+import { getUnhandledAlarms, getDeviceAlarms, deleteAlarmRecord } from '@/api/alarm'
 import { getUserSensorData } from '@/api/sensor'
 import { router } from '@/router'
 
@@ -593,19 +604,29 @@ const fetchDeviceStats = async () => {
 // 获取告警统计信息
 const fetchAlarmStats = async () => {
   try {
-    // 直接调用获取未处理告警的接口
+    // 获取未处理告警的接口
     const response = await getUnhandledAlarms()
     
     // 如果响应是数组，获取其长度作为未处理告警数量
     const unhandledCount = Array.isArray(response) ? response.length : 0
     
+    // 统计未处理告警中不同设备的数量
+    const uniqueDeviceIds = new Set()
+    if (Array.isArray(response)) {
+      response.forEach(alarm => {
+        if (alarm.deviceId) {
+          uniqueDeviceIds.add(alarm.deviceId)
+        }
+      })
+    }
+    
     // 更新告警统计数据
     alarmStats.unhandled = unhandledCount
     
     // 更新概览卡片中的告警设备数量
-    overviewCards[1].value = unhandledCount.toString()
+    overviewCards[1].value = uniqueDeviceIds.size.toString()
     
-    console.log('未处理告警数量:', unhandledCount)
+    console.log('未处理告警数量:', unhandledCount, '告警设备数:', uniqueDeviceIds.size)
   } catch (error) {
     console.error('获取告警统计失败:', error)
     ElMessage.error('获取告警统计失败')
@@ -1039,6 +1060,32 @@ const openAddDeviceDialog = async () => {
     await fetchGroupList()
   }
   showAddDeviceDialog.value = true
+}
+
+// 修改删除告警的处理函数
+const handleDeleteAlarm = async (alarm) => {
+  try {
+    await ElMessageBox.confirm('确定要删除该告警记录吗？', '提示', {
+      type: 'warning'
+    })
+    
+    // 删除告警记录
+    await deleteAlarmRecord(alarm.id)
+    
+    ElMessage.success('删除成功')
+    
+    // 重新加载告警列表
+    fetchAlarmList()
+    
+    // 更新统计信息
+    fetchAlarmStats()
+    fetchLastWeekAlarms()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除告警失败:', error)
+      ElMessage.error('删除告警失败')
+    }
+  }
 }
 </script>
 

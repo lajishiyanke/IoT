@@ -81,3 +81,11 @@ export const handleAlarm = (alarmId, params) => {
     params
   })
 }
+
+// 添加删除告警记录的接口
+export const deleteAlarmRecord = (alarmId) => {
+  return request({
+    url: `/alarms/${alarmId}/delete`,
+    method: 'delete'
+  })
+}
