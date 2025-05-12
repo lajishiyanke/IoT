@@ -4,7 +4,7 @@ import router from '@/router'
 
 // 创建 axios 实例
 const request = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 120000,
   withCredentials: true,
   headers: {
@@ -13,12 +13,15 @@ const request = axios.create({
   }
 })
 
-// 添加刷新token的函数
+// 修改刷新token的函数
 const refreshToken = async () => {
   try {
-    const response = await axios.post('/api/auth/refresh', {
-      token: localStorage.getItem('token')
-    })
+    const response = await axios.post(
+      `${import.meta.env.VITE_API_BASE_URL}/auth/refresh`,
+      {
+        token: localStorage.getItem('token')
+      }
+    )
     const newToken = response.data.token
     localStorage.setItem('token', newToken)
     return newToken

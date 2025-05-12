@@ -43,12 +43,22 @@
                   >
                     导出数据
                   </el-button>
+                </el-button-group>
+
+                <el-button-group>
                   <el-button
-                    type="info"
-                    :icon="Setting"
-                    @click="showSettings = true"
+                    type="primary"
+                    :icon="Document"
+                    @click="showSignalHistoryDialog = true"
                   >
-                    参数设置
+                    历史数据
+                  </el-button>
+                  <el-button
+                    type="success"
+                    :icon="RefreshRight"
+                    @click="fetchLatestSignal"
+                  >
+                    最新数据
                   </el-button>
                 </el-button-group>
               </div>
@@ -386,6 +396,141 @@
       :alarm="currentAlarm"
       @success="handleAlarmSuccess"
     />
+
+    <!-- 文件管理对话框 -->
+    <el-dialog
+      v-model="showFileDialog"
+      title="信号文件管理"
+      width="80%"
+    >
+      <div class="file-query-form">
+        <el-form :inline="true">
+          <el-form-item label="时间范围">
+            <el-date-picker
+              v-model="fileQueryParams.startTime"
+              type="datetime"
+              placeholder="开始时间"
+            />
+            <el-date-picker
+              v-model="fileQueryParams.endTime"
+              type="datetime"
+              placeholder="结束时间"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="fetchSignalFiles">查询</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
+      
+      <el-table
+        :data="fileTableData"
+        style="width: 100%"
+        v-loading="fileLoading"
+      >
+        <el-table-column prop="fileName" label="文件名" />
+        <el-table-column prop="samplingRate" label="采样率">
+          <template #default="{ row }">
+            {{ row.samplingRate }} Hz
+          </template>
+        </el-table-column>
+        <el-table-column prop="channelCount" label="通道数" />
+        <el-table-column prop="dataPoints" label="数据点数" />
+        <el-table-column prop="collectTime" label="采集时间">
+          <template #default="{ row }">
+            {{ new Date(row.collectTime).toLocaleString() }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="fileSize" label="文件大小">
+          <template #default="{ row }">
+            {{ (row.fileSize / 1024).toFixed(2) }} KB
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="200">
+          <template #default="{ row }">
+            <el-button
+              type="primary"
+              link
+              @click="handleViewFile(row)"
+            >
+              查看
+            </el-button>
+            <el-button
+              type="success"
+              link
+              @click="handleDownloadFile(row)"
+            >
+              下载
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- 添加历史数据对话框 -->
+    <el-dialog
+      v-model="showSignalHistoryDialog"
+      title="历史信号数据"
+      width="80%"
+    >
+      <div class="history-query-form">
+        <el-form :inline="true">
+          <el-form-item label="时间范围">
+            <el-date-picker
+              v-model="historyQueryParams.startTime"
+              type="datetime"
+              placeholder="开始时间"
+            />
+            <el-date-picker
+              v-model="historyQueryParams.endTime"
+              type="datetime"
+              placeholder="结束时间"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="fetchSignalHistory">查询</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
+      
+      <el-table
+        :data="historyTableData"
+        style="width: 100%"
+        v-loading="historyLoading"
+      >
+        <el-table-column prop="fileName" label="文件名" />
+        <el-table-column prop="samplingRate" label="采样率">
+          <template #default="{ row }">
+            {{ row.samplingRate }} Hz
+          </template>
+        </el-table-column>
+        <el-table-column prop="channelCount" label="通道数" />
+        <el-table-column prop="dataPoints" label="数据点数" />
+        <el-table-column prop="collectTime" label="采集时间">
+          <template #default="{ row }">
+            {{ new Date(row.collectTime).toLocaleString() }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="200">
+          <template #default="{ row }">
+            <el-button
+              type="primary"
+              link
+              @click="handleViewHistoryData(row)"
+            >
+              查看
+            </el-button>
+            <el-button
+              type="success"
+              link
+              @click="handleDownloadHistoryData(row)"
+            >
+              下载
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -407,7 +552,8 @@ import {
   VideoPause,
   VideoCamera,
   Download,
-  Setting
+  Document,
+  RefreshRight
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { getDeviceSensorData, getLatestSensorData, getUserSensorData } from '@/api/sensor'
@@ -416,6 +562,7 @@ import { exportExcel } from '@/utils/export'
 import { getAlarmRules, setAlarmRule, getUnhandledAlarms, deleteAlarmRule, updateAlarmRule, addAlarmRecord } from '@/api/alarm'
 import AlarmHandleDialog from '@/components/alarm/AlarmHandleDialog.vue'
 import { getUserDevices } from '@/api/device'
+import { getSignalFiles, downloadSignalFile, getLatestSignal, getSignalHistory } from '@/api/signal'
 
 // 注册 ECharts 组件
 use([
@@ -430,7 +577,6 @@ use([
 
 // 状态变量
 const isStreaming = ref(false)
-const showSettings = ref(false)
 const timeWindow = ref('3600')  // 默认1小时，用秒表示
 const selectedChannels = ref(['1'])
 const isRealTime = ref(false)  // 添加实时显示状态
@@ -561,6 +707,32 @@ const ruleForm = reactive({
   thresholdValue: 0,
   alarmLevel: 'warning',
   isEnabled: true
+})
+
+// 添加数据处理相关的变量
+const sampleRate = ref(500000) // 500kHz
+const dataBuffer = reactive({
+  1: [],
+  2: [],
+  3: []
+})
+
+// 添加文件管理相关的响应式变量
+const showFileDialog = ref(false)
+const fileTableData = ref([])
+const fileLoading = ref(false)
+const fileQueryParams = reactive({
+  startTime: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 默认最近7天
+  endTime: new Date()
+})
+
+// 添加新的响应式变量
+const showSignalHistoryDialog = ref(false)
+const historyLoading = ref(false)
+const historyTableData = ref([])
+const historyQueryParams = reactive({
+  startTime: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 默认最近7天
+  endTime: new Date()
 })
 
 // 获取告警等级标签
@@ -738,28 +910,125 @@ const initData = async () => {
 
 // 初始化WebSocket连接
 const initWebSocket = () => {
-  wsClient.value = new WebSocketClient(`wss://tbwufhpdfuoz.sealoshzh.site/ws/sensor/${deviceId.value}`)
+  const wsUrl = import.meta.env.VITE_API_BASE_URL
+    ? import.meta.env.VITE_API_BASE_URL.replace('http', 'ws')
+    : `ws://${window.location.host}/api`
+    
+  wsClient.value = new WebSocket(
+    `${wsUrl}/websocket/${selectedDevice.value}`
+  )
 
-  wsClient.value.onMessage(data => {
-    if (data.type === 'sensorData') {
-      const channelIndex = selectedChannels.value.indexOf(data.channelId)
-      if (channelIndex !== -1) {
-        // 对数据进行降采样
-        const downsampledData = downsampleData(data.values, {
-          originalRate: samplingConfig.rawRate,
-          targetRate: samplingConfig.displayRate,
-          aggregationType: samplingConfig.aggregationType
-        })
-        
-        // 更新图表
-        chartOption.series[channelIndex].data = downsampledData
-        
-        // 更新统计信息
-        updateChannelStats(data.channelId, data.value)
-      }
-    } else if (data.type === 'deviceStatus') {
-      // 更新设备状态
-      deviceStatus.value = data.status
+  wsClient.value.onMessage(handleWebSocketMessage)
+}
+
+// 修改WebSocket消息处理函数
+const handleWebSocketMessage = (event) => {
+  try {
+    const message = JSON.parse(event.data)
+    // 检查消息类型
+    if (message.topic && message.topic.includes('thing/event/property/post')) {
+      handlePropertyPost(message.params)
+    }
+  } catch (error) {
+    console.error('处理WebSocket消息失败:', error)
+  }
+}
+
+// 处理物模型属性上报数据
+const handlePropertyPost = (params) => {
+  if (!params || !params.signal_data) {
+    throw new Error('无效的响应数据')
+  }
+  
+  // 更新采样率
+  if (params.sampling_rate) {
+    sampleRate.value = params.sampling_rate
+  }
+  
+  // 解析CSV数据
+  const rows = params.signal_data.split('\n')
+  // 跳过标题行
+  rows.shift()
+  
+  // 处理每一行数据
+  rows.forEach(row => {
+    if (!row.trim()) return
+    
+    const [time, ch1, ch2, ch3] = row.split(',').map(Number)
+    const timestamp = Date.now() + (time * 1000) // 转换为毫秒时间戳
+    
+    // 添加数据到对应通道
+    if (selectedChannels.value.includes(1)) {
+      dataBuffer[1].push([timestamp, ch1])
+    }
+    if (selectedChannels.value.includes(2)) {
+      dataBuffer[2].push([timestamp, ch2])
+    }
+    if (selectedChannels.value.includes(3)) {
+      dataBuffer[3].push([timestamp, ch3])
+    }
+  })
+  
+  // 更新图表数据
+  updateChartData()
+}
+
+// 修改图表数据更新函数
+const updateChartData = () => {
+  // 为每个选中的通道更新数据
+  selectedChannels.value.forEach((channel, index) => {
+    const data = dataBuffer[channel]
+    if (!data || !data.length) return
+    
+    // 保持数据量在合理范围内
+    const maxPoints = 5000
+    if (data.length > maxPoints) {
+      dataBuffer[channel] = data.slice(-maxPoints)
+    }
+    
+    // 更新图表数据
+    if (chartOption.series[index]) {
+      chartOption.series[index].data = [...dataBuffer[channel]]
+    }
+  })
+  
+  // 更新统计信息
+  updateStats()
+}
+
+// 修改统计信息更新函数
+const updateStats = () => {
+  selectedChannels.value.forEach(channel => {
+    const data = dataBuffer[channel]
+    if (!data || !data.length) return
+    
+    const values = data.map(point => point[1])
+    channelStats[channel] = {
+      max: Math.max(...values),
+      min: Math.min(...values),
+      avg: values.reduce((sum, val) => sum + val, 0) / values.length
+    }
+  })
+}
+
+// 修改清除数据的函数
+const clearData = () => {
+  // 清空数据缓存
+  Object.keys(dataBuffer).forEach(channel => {
+    dataBuffer[channel] = []
+  })
+  
+  // 清空图表数据
+  chartOption.series.forEach(series => {
+    series.data = []
+  })
+  
+  // 重置统计信息
+  selectedChannels.value.forEach(channel => {
+    channelStats[channel] = {
+      max: 0,
+      min: 0,
+      avg: 0
     }
   })
 }
@@ -844,30 +1113,25 @@ const startStream = async () => {
     })
   } else {
     try {
-      const endTime = new Date()
-      const startTime = new Date(endTime.getTime() - parseInt(timeWindow.value) * 1000)
-      console.log('开始时间:', startTime)
-      console.log('结束时间:', endTime)
+      // 使用当前时间
+      const now = new Date()
+      const endTime = now
+      const startTime = new Date(now.getTime() - parseInt(timeWindow.value) * 1000)
       
       // 将 Proxy(Array) 转换为字符串
       const channelIdString = Array.from(selectedChannels.value).join(',')
-
-      // 添加时区偏移
-      const timeZoneOffset = new Date().getTimezoneOffset() * 60000
-      const localStartTime = new Date(startTime.getTime() - timeZoneOffset)
-      const localEndTime = new Date(endTime.getTime() - timeZoneOffset)
 
       // 构建请求参数
       const params = {
         deviceId: selectedDevice.value,
         channelId: channelIdString,
-        startTime: localStartTime.toISOString(),
-        endTime: localEndTime.toISOString()
+        // 转换为UTC时间
+        startTime: startTime.toISOString().slice(0, 19).replace('Z', ''),
+        endTime: endTime.toISOString().slice(0, 19).replace('Z', '')
       }
 
       console.log('请求参数:', params)
 
-      // 使用 getUserSensorData 替代 getDeviceSensorData
       const response = await getUserSensorData(params)
 
       console.log('获取到的原始响应:', response)
@@ -959,44 +1223,47 @@ const stopStream = async () => {
   }
 }
 
-// 导出数据
+// 修改导出数据函数
 const downloadData = () => {
+  // 检查是否有数据
+  if (!chartOption.series[0]?.data?.length) {
+    ElMessage.warning('暂无数据可导出')
+    return
+  }
+  
+  console.time('导出数据耗时')  // 开始计时
   try {
-    // 更新统计信息
-    updateStats()
+    // 构建CSV内容
+    let csvContent = 'Time(s),Value\n'  // CSV头部，明确时间单位
     
-    // 获取当前图表上的数据
-    const exportData = []
-    
-    // 遍历每个通道的数据
-    chartOption.series.forEach((series, index) => {
-      const channelId = selectedChannels.value[index]
-      series.data.forEach(point => {
-        exportData.push({
-          '时间': new Date(point[0]).toLocaleString(),
-          '通道': `通道${channelId}`,
-          '幅值': point[1].toFixed(2)
-        })
-      })
+    // 处理每个数据点
+    chartOption.series[0].data.forEach(point => {
+      const [timestamp, value] = point
+      const timeInSeconds = (timestamp / 1000).toFixed(12)
+      const formattedValue = value.toFixed(6)
+      csvContent += `${timeInSeconds},${formattedValue}\n`
     })
-
-    // 按时间排序
-    exportData.sort((a, b) => new Date(a.时间) - new Date(b.时间))
     
-    if (exportData.length === 0) {
-      ElMessage.warning('没有可导出的数据')
-      return
-    }
-
-    // 导出Excel
-    exportExcel(
-      exportData,
-      `传感器数据_${new Date().toLocaleString()}.xlsx`
-    )
+    // 创建Blob对象并下载
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const fileName = `sensor_data_${Date.now()}.csv`
+    
+    link.setAttribute('href', url)
+    link.setAttribute('download', fileName)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    
     ElMessage.success('数据导出成功')
+    console.timeEnd('导出数据耗时')  // 结束计时
   } catch (error) {
-    console.error('导出数据失败:', error)           
+    console.error('导出数据失败:', error)
     ElMessage.error('导出数据失败')
+    console.timeEnd('导出数据耗时')  // 确保出错时也结束计时
   }
 }
 
@@ -1053,7 +1320,6 @@ const saveSettings = async () => {
       alarmLevel: 'warning',
       isEnabled: true
     })
-    showSettings.value = false
     ElMessage.success('设置已保存')
     await fetchAllAlarmRules()
   } catch (error) {
@@ -1229,35 +1495,6 @@ const checkAlarmThreshold = (channelId, max, min, avg) => {
   })
 }
 
-// 在数据更新时重新计算统计信息
-const updateStats = () => {
-  selectedChannels.value.forEach((_, index) => {
-    calculateChannelStats(index)
-  })
-}
-
-const fetchSensorData = async () => {
-  try {
-    const data = await getDeviceSensorData(deviceId, {
-      channelId: selectedChannel,
-      startTime: startTime,
-      endTime: endTime
-    })
-    // 处理数据...
-  } catch (error) {
-    ElMessage.error('获取数据失败')
-  }
-}
-
-const handleAlarm = (alarm) => {
-  currentAlarm.value = alarm
-  showAlarmHandle.value = true
-}
-
-const handleAlarmSuccess = () => {
-  fetchUnhandledAlarms()
-}
-
 // 添加时间窗口变化处理函数
 const handleTimeWindowChange = async () => {
   if (!selectedDevice.value) return
@@ -1349,6 +1586,252 @@ const loadSegmentData = async (startIndex, endIndex) => {
   
   // 更新图表数据
   updateChartData(response.data)
+}
+
+// 获取信号文件列表
+const fetchSignalFiles = async () => {
+  if (!selectedDevice.value) {
+    ElMessage.warning('请先选择设备')
+    return
+  }
+  
+  fileLoading.value = true
+  try {
+    const files = await getSignalFiles(
+      selectedDevice.value,
+      fileQueryParams.startTime,
+      fileQueryParams.endTime
+    )
+    fileTableData.value = files
+  } catch (error) {
+    console.error('获取信号文件失败:', error)
+    ElMessage.error('获取文件列表失败')
+  } finally {
+    fileLoading.value = false
+  }
+}
+
+// 查看文件内容
+const handleViewFile = async (file) => {
+  try {
+    const response = await downloadSignalFile(file.id)
+    const text = await response.text()
+    
+    // 解析CSV数据
+    const rows = text.split('\n')
+    const headers = rows[0].split(',')
+    const data = rows.slice(1).map(row => {
+      const values = row.split(',').map(Number)
+      return values
+    })
+    
+    // 清空现有数据
+    chartOption.series.forEach(series => {
+      series.data = []
+    })
+    
+    // 更新图表数据
+    data.forEach(row => {
+      const timestamp = row[0]
+      row.slice(1).forEach((value, index) => {
+        if (chartOption.series[index]) {
+          chartOption.series[index].data.push([timestamp, value])
+        }
+      })
+    })
+    
+    // 更新统计信息
+    updateStats()
+    
+    showFileDialog.value = false
+  } catch (error) {
+    console.error('查看文件失败:', error)
+    ElMessage.error('查看文件失败')
+  }
+}
+
+// 下载文件
+const handleDownloadFile = async (file) => {
+  try {
+    const response = await downloadSignalFile(file.id)
+    // 解析CSV数据以重新格式化
+    const text = await response.text()
+    const rows = text.split('\n')
+    
+    // 保持CSV头部
+    let formattedContent = rows[0] + '\n'
+    
+    // 处理数据行
+    for (let i = 1; i < rows.length; i++) {
+      if (!rows[i].trim()) continue
+      
+      const [time, ...values] = rows[i].split(',').map(Number)
+      const date = new Date(time)
+      const timeStr = date.toISOString().replace('T', ' ').replace('Z', '')
+      
+      // 格式化值，保留6位小数
+      const formattedValues = values.map(v => v.toFixed(6))
+      
+      formattedContent += `${timeStr},${formattedValues.join(',')}\n`
+    }
+    
+    // 创建Blob对象
+    const blob = new Blob([formattedContent], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = file.fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    
+    ElMessage.success('文件下载成功')
+  } catch (error) {
+    console.error('下载文件失败:', error)
+    ElMessage.error('下载文件失败')
+  }
+}
+
+// 获取最新信号数据
+const fetchLatestSignal = async () => {
+  if (!selectedDevice.value) {
+    ElMessage.warning('请先选择设备')
+    return
+  }
+  
+  console.time('获取最新数据耗时')  // 开始计时
+  try {
+    const result = await getLatestSignal(selectedDevice.value)
+    
+    if (result && result.times && result.values) {
+      // 清空现有数据
+      chartOption.series.forEach(series => {
+        series.data = []
+      })
+      
+      // 添加新数据
+      const data = result.times.map((time, index) => [
+        time,
+        result.values[index]
+      ])
+      
+      chartOption.series[0].data = data
+      
+      if (result.samplingRate) {
+        sampleRate.value = result.samplingRate
+      }
+      
+      updateStats()
+    }
+    
+    ElMessage.success('获取最新数据成功')
+    console.timeEnd('获取最新数据耗时')  // 结束计时
+  } catch (error) {
+    console.error('获取最新数据失败:', error)
+    ElMessage.error('获取最新数据失败')
+    console.timeEnd('获取最新数据耗时')  // 确保出错时也结束计时
+  }
+}
+
+// 获取历史信号数据
+const fetchSignalHistory = async () => {
+  if (!selectedDevice.value) {
+    ElMessage.warning('请先选择设备')
+    return
+  }
+  
+  historyLoading.value = true
+  console.time('获取历史数据耗时')  // 开始计时
+  try {
+    const result = await getSignalHistory(
+      selectedDevice.value,
+      historyQueryParams.startTime,
+      historyQueryParams.endTime
+    )
+    historyTableData.value = result
+    ElMessage.success('获取历史数据成功')
+    console.timeEnd('获取历史数据耗时')  // 结束计时
+  } catch (error) {
+    console.error('获取历史数据失败:', error)
+    ElMessage.error('获取历史数据失败')
+    console.timeEnd('获取历史数据耗时')  // 确保出错时也结束计时
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+// 查看历史数据
+const handleViewHistoryData = async (file) => {
+  try {
+    const response = await downloadSignalFile(file.id)
+    const text = await response.text()
+    
+    // 解析CSV数据
+    const rows = text.split('\n')
+    const headers = rows[0].split(',')
+    const data = rows.slice(1).map(row => {
+      const values = row.split(',').map(Number)
+      return values
+    })
+    
+    // 重置坐标轴范围
+    chartOption.xAxis = {
+      ...chartOption.xAxis,
+      min: undefined,  // 清除之前的范围限制
+      max: undefined
+    }
+    
+    // 清空现有数据
+    chartOption.series.forEach(series => {
+      series.data = []
+    })
+    
+    // 更新图表数据
+    data.forEach(row => {
+      const timestamp = row[0]
+      row.slice(1).forEach((value, index) => {
+        if (chartOption.series[index]) {
+          chartOption.series[index].data.push([timestamp, value])
+        }
+      })
+    })
+    
+    // 让图表自动计算合适的显示范围
+    nextTick(() => {
+      const chart = chartRef.value
+      if (chart) {
+        chart.resize()
+      }
+    })
+    
+    // 更新统计信息
+    updateStats()
+    
+    showSignalHistoryDialog.value = false
+  } catch (error) {
+    console.error('查看历史数据失败:', error)
+    ElMessage.error('查看历史数据失败')
+  }
+}
+
+// 下载历史数据
+const handleDownloadHistoryData = async (file) => {
+  try {
+    const response = await downloadSignalFile(file.id)
+    const blob = new Blob([response], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = file.fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('下载历史数据失败:', error)
+    ElMessage.error('下载历史数据失败')
+  }
 }
 
 onMounted(async () => {

@@ -1,0 +1,17 @@
+{
+  "packages": [
+    "nodejs@latest",
+    "nginx@latest"
+  ],
+  "shell": {
+    "init_hook": [
+      "npm install",
+      "npm run build"
+    ],
+    "scripts": {
+      "serve": "npm run serve",
+      "dev": "npm run dev",
+      "build": "npm run build"
+    }
+  }
+} 

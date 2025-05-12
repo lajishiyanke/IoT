@@ -1,3 +1,7 @@
 #!/bin/bash
+
+# 进入项目目录
 cd /home/devbox/project
-npm run start
+npm install
+npm run build
+npm run serve

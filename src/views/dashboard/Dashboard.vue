@@ -782,6 +782,8 @@ const total = ref(0)
 const fetchDeviceList = async () => {
   try {
     loading.value = true
+    console.time('获取设备列表耗时')  // 开始计时
+    
     const response = await getUserDevices()
     
     if (Array.isArray(response)) {
@@ -793,9 +795,11 @@ const fetchDeviceList = async () => {
       const endIndex = startIndex + pageSize.value
       deviceTableData.value = response.slice(startIndex, endIndex)
     }
+    console.timeEnd('获取设备列表耗时')  // 结束计时
   } catch (error) {
     console.error('获取设备列表失败:', error)
     ElMessage.error('获取设备列表失败')
+    console.timeEnd('获取设备列表耗时')  // 确保出错时也结束计时
   } finally {
     loading.value = false
   }
@@ -846,6 +850,7 @@ const alarmDateRange = ref([])
 const fetchAlarmList = async () => {
   try {
     alarmLoading.value = true
+    console.time('获取告警记录耗时')  // 开始计时
     
     // 确保已经获取了设备列表数据
     if (deviceTableData.value.length === 0) {
@@ -870,9 +875,11 @@ const fetchAlarmList = async () => {
       const endIndex = startIndex + alarmPageSize.value
       alarmTableData.value = response.slice(startIndex, endIndex)
     }
+    console.timeEnd('获取告警记录耗时')  // 结束计时
   } catch (error) {
     console.error('获取告警记录失败:', error)
     ElMessage.error('获取告警记录失败')
+    console.timeEnd('获取告警记录耗时')  // 确保出错时也结束计时
   } finally {
     alarmLoading.value = false
   }
@@ -908,6 +915,8 @@ const currentGroup = ref(null)
 const fetchGroupList = async () => {
   try {
     groupLoading.value = true
+    console.time('获取设备分组耗时')  // 开始计时
+    
     const response = await getGroupTree()
     
     if (Array.isArray(response)) {
@@ -923,9 +932,11 @@ const fetchGroupList = async () => {
         }
       }))
     }
+    console.timeEnd('获取设备分组耗时')  // 结束计时
   } catch (error) {
     console.error('获取设备分组失败:', error)
     ElMessage.error('获取设备分组失败')
+    console.timeEnd('获取设备分组耗时')  // 确保出错时也结束计时
   } finally {
     groupLoading.value = false
   }

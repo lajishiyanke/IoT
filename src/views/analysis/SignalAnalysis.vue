@@ -628,6 +628,7 @@ const startAnalysis = async () => {
         ElMessage.error('时频分析失败，请稍后重试')
       }
     } else if (analysisParams.method === 'predict') {
+      console.time('模型预测耗时')  // 开始计时
       try {
         const result = await signalPredict({
           values: importedData.value.yData,
@@ -642,13 +643,16 @@ const startAnalysis = async () => {
           x: result.x,
           y: result.y,
           size: result.size,
-          time: new Date().toLocaleString()
+          time: new Date().toLocaleString(),
+          duration: console.timeEnd('模型预测耗时')  // 结束计时并获取耗时
         })
 
         ElMessage.success('预测完成')
+        console.log('模型预测总耗时:', predictionResults.value[predictionResults.value.length - 1].duration)
       } catch (error) {
         console.error('预测失败:', error)
         ElMessage.error('预测失败: ' + error.message)
+        console.timeEnd('模型预测耗时')  // 确保在出错时也结束计时
       }
     }
   } catch (error) {
